@@ -26,6 +26,7 @@
 #include "modules/wifi_mgr.h"
 #include "modules/udp_comm.h"
 #include "modules/led_ctrl.h"
+#include "modules/proto_parser.h"
 
 /* ========== 模块日志标签 ========== */
 static const char *TAG = "app_main";
@@ -37,6 +38,8 @@ static const char *TAG = "app_main";
 #define SERVER_PORT     8080
 /** 本地绑定端口（ESP32 在此端口接收服务器数据） */
 #define LOCAL_PORT      8081
+/** 本车 ID（与 STM32 MAC 地址绑定，此处先写固定值，后续可从 NVS 读取） */
+#define OWN_CAR_ID      "CAR1"
 
 /* ========== 心跳发送间隔 ========== */
 /** 向服务器发送心跳包的间隔（毫秒） */
@@ -60,19 +63,52 @@ static const char *TAG = "app_main";
 static void on_udp_data_received(const char *data, size_t len,
                                  const char *src_ip, uint16_t src_port)
 {
-    ESP_LOGI(TAG, "[RX] from %s:%u: %s", src_ip, src_port, data);
+    ESP_LOGI(TAG, "[RX] from %s:%u, len=%d", src_ip, src_port, (int)len);
 
-    if (strncmp(data, "TOPOLOGY:", 9) == 0) {
-        ESP_LOGI(TAG, "[TOPOLOGY] data: %s", data + 9);
-        /* TODO: parse matrix string "0,1,1,1;1,0,1,1;..." */
+    /* Hand raw payload to the protocol parser */
+    proto_parse_message(data, len);
+
+    /* ------------------------------------------------------------------ *
+     * Poll parsed results and act on them                                 *
+     * ------------------------------------------------------------------ */
+
+    /* --- Move command (addressed to OWN_CAR_ID) --- */
+    proto_cmd_move_t mv;
+    if (proto_consume_move_cmd(&mv)) {
+        ESP_LOGI(TAG, "[CMD_MOVE] target=(%.3f, %.3f), yaw=%.1f",
+                 mv.x, mv.y, mv.yaw);
         led_ctrl_set_mode(LED_MODE_ACTIVE);
+        /* TODO: forward to STM32 via UART */
+    }
 
-    } else if (strncmp(data, "TOPOLOGY_TOGGLE:", 16) == 0) {
-        ESP_LOGI(TAG, "[TOPOLOGY_TOGGLE] value: %s", data + 16);
-        /* TODO: handle toggle True/False */
+    /* --- Formation command --- */
+    proto_cmd_formation_t fm;
+    if (proto_consume_formation_cmd(&fm)) {
+        switch (fm.type) {
+            case FORMATION_CMD_STOP:
+                ESP_LOGI(TAG, "[CMD_FORMATION] STOP");
+                break;
+            case FORMATION_CMD_SET_LEADER:
+                ESP_LOGI(TAG, "[CMD_FORMATION] SET_LEADER");
+                break;
+            case FORMATION_CMD_SET_FOLLOWER:
+                ESP_LOGI(TAG, "[CMD_FORMATION] FOLLOWER of %s, offset=(%.2f,%.2f,%.1f)",
+                         fm.leader_id, fm.offset_x, fm.offset_y, fm.offset_yaw);
+                break;
+            case FORMATION_CMD_UPDATE_OFFSET:
+                ESP_LOGI(TAG, "[CMD_FORMATION] UPDATE_OFFSET (%.2f,%.2f,%.1f)",
+                         fm.offset_x, fm.offset_y, fm.offset_yaw);
+                break;
+            default:
+                break;
+        }
+        /* TODO: forward to STM32 via UART */
+    }
 
-    } else {
-        ESP_LOGW(TAG, "[UNKNOWN] raw: %.*s", (int)len, data);
+    /* --- Topology update → just log for now --- */
+    const proto_topology_t *topo = proto_get_topology();
+    if (topo->enabled) {
+        led_ctrl_set_mode(LED_MODE_ACTIVE);
     }
 }
 
@@ -135,6 +171,9 @@ void app_main(void)
     /* --- Global network init (call only once) --- */
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+    /* --- Protocol parser init --- */
+    proto_parser_init(OWN_CAR_ID);
 
     /* --- Step 2: LED init --- */
     led_ctrl_init();
