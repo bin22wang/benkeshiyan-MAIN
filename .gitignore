@@ -1,0 +1,19 @@
+# ESP-IDF build output (large, auto-generated)
+build/
+
+# managed_components are downloaded automatically by idf_component_manager
+# keep idf_component.yml but ignore the downloaded source
+managed_components/
+
+# Editor / IDE
+.vscode/settings.json
+*.swp
+*.swo
+.DS_Store
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Old sdkconfig backup
+sdkconfig.old
