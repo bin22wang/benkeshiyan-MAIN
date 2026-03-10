@@ -21,7 +21,10 @@ extern "C" {
  *
  * 当接收到 UDP 数据包时，模块内部将调用此回调。
  *
- * @param data   接收到的数据缓冲区指针（已添加字符串终止符）
+ * 回调触发上下文：在 udp_comm.c 内部创建的接收任务（udp_rx_task）中调用，
+ * 因此它不是中断回调；但也不建议在此做长时间阻塞/耗时操作（否则会拖慢后续 UDP 接收）。
+ *
+ * @param data   接收到的数据缓冲区指针（实现中会额外补一个 '\0'，便于按字符串日志打印）
  * @param len    数据长度（字节数，不含终止符）
  * @param src_ip 数据包来源 IP 地址字符串（如 "192.168.31.46"）
  * @param src_port 数据包来源端口号
@@ -41,6 +44,8 @@ typedef void (*udp_rx_callback_t)(const char *data, size_t len,
  * @param server_ip   服务器 IP 地址字符串（如 "192.168.31.46"）
  * @param server_port 服务器端口号（发送目标端口）
  * @param local_port  本地绑定端口号（用于接收数据）
+ *
+ * @note 一般应在网络就绪（Wi-Fi 已连接并获取到 IP）后再初始化 UDP socket。
  * @return true  初始化成功
  * @return false 初始化失败（socket/bind 错误）
  */
@@ -55,6 +60,9 @@ bool udp_comm_init(const char *server_ip, uint16_t server_port,
  *
  * @param data 要发送的数据指针
  * @param len  数据长度（字节数）
+ *
+ * @note 若多个任务可能并发调用 udp_comm_send()，建议在上层加互斥锁做串行化，
+ *       以避免并发写同一个 socket 带来的潜在竞态。
  * @return true  发送成功
  * @return false 发送失败（socket 未初始化或 sendto 错误）
  */

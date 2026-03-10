@@ -7,8 +7,8 @@
  *  2. LED 模块初始化（进入快速闪烁，指示未连接状态）
  *  3. Wi-Fi 模块初始化（阻塞至连接成功或超时）
  *  4. UDP 通信模块初始化（绑定端口，启动接收任务）
- *  5. 注册 UDP 接收回调（处理服务器下发的拓扑/控制指令）
- *  6. 启动周期性心跳发送任务
+ *  5. 注册 UDP 接收回调（处理服务器下发的拓扑/控制/编队指令）
+ *  6. 启动本车状态上报任务（10 Hz，格式 CAR_ID:x,y,yaw,vol,vx,vy,vz）
  */
 
 #include <stdio.h>
@@ -21,12 +21,16 @@
 #include "nvs_flash.h"
 #include "esp_netif.h"
 #include "esp_event.h"
+#include "esp_system.h"
+#include "esp_mac.h"
 
 /* 各功能模块头文件 */
 #include "modules/wifi_mgr.h"
 #include "modules/udp_comm.h"
 #include "modules/led_ctrl.h"
 #include "modules/proto_parser.h"
+#include "modules/uart.h"
+#include "modules/vel_solver.h"
 
 /* ========== 模块日志标签 ========== */
 static const char *TAG = "app_main";
@@ -38,12 +42,41 @@ static const char *TAG = "app_main";
 #define SERVER_PORT     8080
 /** 本地绑定端口（ESP32 在此端口接收服务器数据） */
 #define LOCAL_PORT      8081
-/** 本车 ID（与 STM32 MAC 地址绑定，此处先写固定值，后续可从 NVS 读取） */
-#define OWN_CAR_ID      "CAR1"
+/** 本车 ID（由 MAC 地址映射得到） */
+#define OWN_CAR_ID_DEFAULT "CAR1"
 
-/* ========== 心跳发送间隔 ========== */
-/** 向服务器发送心跳包的间隔（毫秒） */
-#define HEARTBEAT_INTERVAL_MS   1000
+/* ========== MAC -> 车辆 ID 映射表 ========== */
+/**
+ * @brief MAC 地址到车辆 ID 的映射条目
+ *
+ * 用于在多车场景下，根据设备自身的 Wi-Fi STA MAC 推导出本车 ID。
+ */
+typedef struct {
+    uint8_t mac[6];
+    const char *car_id;
+} mac_car_map_t;
+
+static const mac_car_map_t k_mac_car_map[] = {
+    {{0xDC, 0xB4, 0xD9, 0x16, 0xC1, 0x64}, "CAR1"},
+    {{0xDC, 0xB4, 0xD9, 0x16, 0xD4, 0x58}, "CAR2"},
+    {{0x3C, 0xDC, 0x75, 0x6C, 0x04, 0x80}, "CAR3"},
+    {{0xDC, 0xB4, 0xD9, 0x16, 0xC7, 0x90}, "CAR4"},
+};
+
+static const char *lookup_car_id_by_mac(const uint8_t mac[6])
+{
+    for (size_t i = 0; i < sizeof(k_mac_car_map) / sizeof(k_mac_car_map[0]); i++) {
+        if (memcmp(mac, k_mac_car_map[i].mac, sizeof(k_mac_car_map[i].mac)) == 0) {
+            return k_mac_car_map[i].car_id;
+        }
+    }
+    /* 未匹配到已知 MAC：回退到默认车辆 ID（避免空指针/未知 ID 影响业务逻辑） */
+    return OWN_CAR_ID_DEFAULT;
+}
+
+/* ========== 状态上报间隔 ========== */
+/** 向服务器上报本车状态的间隔（毫秒）；100 ms = 10 Hz，与 STM32 端发送频率一致 */
+#define STATE_REPORT_INTERVAL_MS   100
 
 /* ========== 业务回调函数 ========== */
 
@@ -63,37 +96,51 @@ static const char *TAG = "app_main";
 static void on_udp_data_received(const char *data, size_t len,
                                  const char *src_ip, uint16_t src_port)
 {
+    /*
+     * 注意：该回调运行在 UDP 接收任务（udp_rx_task）上下文。
+     * 建议保持处理轻量；若需要做较重逻辑，可改为投递队列给其他任务处理。
+     */
     ESP_LOGI(TAG, "[RX] from %s:%u, len=%d", src_ip, src_port, (int)len);
 
-    /* Hand raw payload to the protocol parser */
+    /* 将原始 UDP 负载交给协议解析器（解析结果通过 consume/get 接口取出） */
     proto_parse_message(data, len);
 
-    /* ------------------------------------------------------------------ *
-     * Poll parsed results and act on them                                 *
+    /* ------------------------------------------------------------------
+     * 轮询解析结果并执行对应动作
      * ------------------------------------------------------------------ */
 
-    /* --- Move command (addressed to OWN_CAR_ID) --- */
+    /* --- MOVE 指令（通常是发给某个 car_id 的点位/航向目标） --- */
     proto_cmd_move_t mv;
     if (proto_consume_move_cmd(&mv)) {
         ESP_LOGI(TAG, "[CMD_MOVE] target=(%.3f, %.3f), yaw=%.1f",
                  mv.x, mv.y, mv.yaw);
         led_ctrl_set_mode(LED_MODE_ACTIVE);
-        /* TODO: forward to STM32 via UART */
+        /*
+         * vel_solver_set_position_target() 已在 proto_parse_message() 内部完成调用；
+         * 速度输出由 uart_tx_task 每 20 ms 周期性下发给 STM32，此处无需额外操作。
+         */
     }
 
-    /* --- Formation command --- */
+    /* --- 编队/角色相关指令 --- */
     proto_cmd_formation_t fm;
     if (proto_consume_formation_cmd(&fm)) {
+        /*
+         * vel_solver 模式切换已在 proto_parse_message() 内部完成；
+         * 此处只需根据角色更新 LED 状态，速度输出由 uart_tx_task 自动下发给 STM32。
+         */
         switch (fm.type) {
             case FORMATION_CMD_STOP:
                 ESP_LOGI(TAG, "[CMD_FORMATION] STOP");
+                led_ctrl_set_mode(LED_MODE_CONNECTED);  /* 编队结束，恢复待命状态 */
                 break;
             case FORMATION_CMD_SET_LEADER:
                 ESP_LOGI(TAG, "[CMD_FORMATION] SET_LEADER");
+                led_ctrl_set_mode(LED_MODE_ACTIVE);
                 break;
             case FORMATION_CMD_SET_FOLLOWER:
                 ESP_LOGI(TAG, "[CMD_FORMATION] FOLLOWER of %s, offset=(%.2f,%.2f,%.1f)",
                          fm.leader_id, fm.offset_x, fm.offset_y, fm.offset_yaw);
+                led_ctrl_set_mode(LED_MODE_ACTIVE);
                 break;
             case FORMATION_CMD_UPDATE_OFFSET:
                 ESP_LOGI(TAG, "[CMD_FORMATION] UPDATE_OFFSET (%.2f,%.2f,%.1f)",
@@ -102,43 +149,78 @@ static void on_udp_data_received(const char *data, size_t len,
             default:
                 break;
         }
-        /* TODO: forward to STM32 via UART */
     }
 
-    /* --- Topology update → just log for now --- */
+    /* --- 拓扑信息：当前仅用于指示灯状态展示 --- */
     const proto_topology_t *topo = proto_get_topology();
     if (topo->enabled) {
         led_ctrl_set_mode(LED_MODE_ACTIVE);
     }
 }
 
-/* ========== 周期性心跳任务 ========== */
+/* ========== 本车状态上报任务 ========== */
 
 /**
- * @brief 心跳发送任务
+ * @brief 状态上报任务：将 STM32 上报的本车位姿实时转发给服务器
  *
- * 每隔 HEARTBEAT_INTERVAL_MS 毫秒向服务器发送一条心跳消息，
- * 格式为："HELLO:esp32s3,seq=<序号>"
- * 服务器可凭此感知 ESP32 的在线状态。
+ * 上报频率：10 Hz（STATE_REPORT_INTERVAL_MS = 100 ms）
+ * 上报格式（与 STM32 端 ESP8266_SendStatus_UDP_Reliable 保持一致）：
+ *   "CAR_ID:x,y,yaw,volume,vx,vy,vz"
+ * 其中 volume（电压）固定为 0.0（ESP32 无电压采集），
+ * x/y 精度 %.2f，yaw 精度 %.1f，vx/vy/vz 精度 %.3f。
  *
- * @param pvParameters 未使用
+ * 仅在 STM32 已通过 UART 上报有效状态后才发送，
+ * 避免向服务器发送全零的无效数据。
+ *
+ * @param pvParameters  本车 ID 字符串（const char*），由 xTaskCreate 传入
  */
-static void heartbeat_task(void *pvParameters)
+static void state_report_task(void *pvParameters)
 {
-    int seq = 0;
-    char msg[64];
+    const char *own_car_id = (const char *)pvParameters;
+    char msg[96];
 
-    ESP_LOGI(TAG, "Heartbeat task running, interval=%d ms", HEARTBEAT_INTERVAL_MS);
+    ESP_LOGI(TAG, "State report task running, interval=%d ms, car_id=%s",
+             STATE_REPORT_INTERVAL_MS, own_car_id);
 
     while (1) {
-        int len = snprintf(msg, sizeof(msg), "HELLO:esp32s3,seq=%d", seq++);
-        if (!udp_comm_send(msg, (size_t)len)) {
-            ESP_LOGW(TAG, "Heartbeat send failed, seq=%d", seq - 1);
+        const vel_own_state_t *st = vel_solver_get_own_state();
+        if (st->valid) {
+            /* 格式与 STM32 端 ESP8266_SendStatus_UDP_Reliable 保持一致：
+             * CAR_ID:x,y,yaw,voltage,vx,vy,vz
+             * voltage 固定 0.0（ESP32 无该采集） */
+            int len = snprintf(msg, sizeof(msg),
+                               "%s:%.2f,%.2f,%.1f,0.0,%.3f,%.3f,%.3f",
+                               own_car_id,
+                               st->x, st->y, st->yaw,
+                               st->vx, st->vy, st->vz);
+            if (!udp_comm_send(msg, (size_t)len)) {
+                ESP_LOGW(TAG, "State report send failed");
+            }
         }
-        vTaskDelay(pdMS_TO_TICKS(HEARTBEAT_INTERVAL_MS));
+        vTaskDelay(pdMS_TO_TICKS(STATE_REPORT_INTERVAL_MS));
     }
 
     vTaskDelete(NULL);
+}
+
+/* ========== 设备 MAC 打印 ========== */
+
+/**
+ * @brief 打印本机 Wi-Fi STA MAC 地址并返回映射后的车辆 ID
+ */
+static const char *print_own_mac(void)
+{
+    uint8_t mac[6] = {0};
+    esp_err_t err = esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "read MAC failed: %s", esp_err_to_name(err));
+        return OWN_CAR_ID_DEFAULT;
+    }
+
+    ESP_LOGI(TAG, "Wi-Fi STA MAC: %02X:%02X:%02X:%02X:%02X:%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    return lookup_car_id_by_mac(mac);
 }
 
 /* ========== 应用入口 ========== */
@@ -152,7 +234,7 @@ static void heartbeat_task(void *pvParameters)
  *  3. Wi-Fi 连接（阻塞至成功或失败）
  *  4. UDP 通信初始化（创建 socket，启动接收任务）
  *  5. 注册 UDP 接收回调
- *  6. 启动心跳发送任务
+ *  6. 启动状态上报任务（10 Hz 向服务器发送本车位姿）
  */
 void app_main(void)
 {
@@ -169,11 +251,23 @@ void app_main(void)
     ESP_LOGI(TAG, "Step 1/5: NVS init OK");
 
     /* --- Global network init (call only once) --- */
+    /* 初始化 TCP/IP 栈与默认事件循环：Wi-Fi、socket 等网络能力依赖它们 */
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    /* --- Protocol parser init --- */
-    proto_parser_init(OWN_CAR_ID);
+    /* --- Print device MAC --- */
+    /* --- Print device MAC & resolve car id --- */
+    const char *own_car_id = print_own_mac();
+    ESP_LOGI(TAG, "Resolved own car id: %s", own_car_id);
+
+    /* --- Protocol parser & vel solver init --- */
+    proto_parser_init(own_car_id);
+    vel_solver_init(); /* 清空解算器状态，必须在 proto_parser_init() 之后调用 */
+
+    /* --- UART bridge init --- */
+    /* 启动串口桥接任务：负责与 STM32 交换状态/控制量（详见 modules/uart.c） */
+    uart_bridge_init(115200);
+    uart_bridge_start();
 
     /* --- Step 2: LED init --- */
     led_ctrl_init();
@@ -201,9 +295,12 @@ void app_main(void)
     udp_comm_register_rx_callback(on_udp_data_received);
     ESP_LOGI(TAG, "Step 5/5: UDP RX callback registered");
 
-    /* --- Start heartbeat task --- */
-    xTaskCreate(heartbeat_task, "heartbeat_task", 4096, NULL, 4, NULL);
-    ESP_LOGI(TAG, "Heartbeat task started, interval=%d ms", HEARTBEAT_INTERVAL_MS);
+    /* --- Start state report task --- */
+    /* 将 own_car_id 字符串作为任务参数传入；指针指向 k_mac_car_map 中的字符串字面量，
+     * 生命周期覆盖整个程序运行，无需额外内存管理 */
+    xTaskCreate(state_report_task, "state_report", 4096, (void *)own_car_id, 4, NULL);
+    ESP_LOGI(TAG, "State report task started, interval=%d ms, car_id=%s",
+             STATE_REPORT_INTERVAL_MS, own_car_id);
 
     ESP_LOGI(TAG, "============ System Ready, server=%s:%d, local_port=%d ============",
              SERVER_IP, SERVER_PORT, LOCAL_PORT);

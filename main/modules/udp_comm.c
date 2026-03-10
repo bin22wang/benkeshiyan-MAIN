@@ -6,7 +6,7 @@
  *  - 创建 socket、绑定本地端口
  *  - 后台 FreeRTOS 任务持续接收数据
  *  - 通过回调机制将收到的数据通知上层
- *  - 提供线程安全的发送接口
+ *  - 提供发送接口（如需多任务并发发送，建议由上层加锁串行化）
  */
 
 #include "udp_comm.h"
@@ -60,13 +60,21 @@ static void udp_rx_task(void *pvParameters)
     ESP_LOGI(TAG, "UDP RX task started");
 
     while (1) {
+        /*
+         * recvfrom():
+         *  - 返回值 > 0：收到 UDP 数据
+         *  - 返回值 = 0：UDP 一般不会出现（对端关闭无“连接”语义）
+         *  - 返回值 < 0：出错；当设置了 SO_RCVTIMEO 时，超时会返回 -1 并置 errno=EAGAIN/EWOULDBLOCK
+         */
         int rx_len = recvfrom(s_sock, rxbuf, sizeof(rxbuf) - 1, 0,
                               (struct sockaddr *)&source_addr, &socklen);
 
         if (rx_len > 0) {
+            /* 追加 '\0' 方便作为 C 字符串打印日志；len 仍以 rx_len 为准 */
             rxbuf[rx_len] = '\0';
 
             char src_ip[16];
+            /* inet_ntoa() 返回静态缓冲区指针，拷贝一份避免后续调用覆盖 */
             strncpy(src_ip, inet_ntoa(source_addr.sin_addr), sizeof(src_ip) - 1);
             uint16_t src_port = ntohs(source_addr.sin_port);
 
@@ -74,6 +82,7 @@ static void udp_rx_task(void *pvParameters)
                      src_ip, src_port, rx_len, rxbuf);
 
             if (s_rx_callback != NULL) {
+                /* 回调在本接收任务上下文执行：建议回调内保持轻量，必要时转发到其他队列/任务 */
                 s_rx_callback(rxbuf, (size_t)rx_len, src_ip, src_port);
             }
 
@@ -97,7 +106,10 @@ bool udp_comm_init(const char *server_ip, uint16_t server_port,
         return false;
     }
 
-    /* 配置发送目标地址（服务器地址） */
+    /*
+     * 配置发送目标地址（服务器地址）：udp_comm_send() 会将数据发往此地址。
+     * 注意：UDP 无连接，"server" 仅表示默认目的端。
+     */
     memset(&s_dest_addr, 0, sizeof(s_dest_addr));
     s_dest_addr.sin_family      = AF_INET;
     s_dest_addr.sin_addr.s_addr = inet_addr(server_ip);
@@ -110,7 +122,7 @@ bool udp_comm_init(const char *server_ip, uint16_t server_port,
         return false;
     }
 
-    /* 绑定本地端口，用于接收数据 */
+    /* 绑定本地端口，用于接收数据（INADDR_ANY 表示监听所有本机网卡） */
     struct sockaddr_in local_addr = {
         .sin_family      = AF_INET,
         .sin_addr.s_addr = htonl(INADDR_ANY),
@@ -124,6 +136,7 @@ bool udp_comm_init(const char *server_ip, uint16_t server_port,
         return false;
     }
 
+    /* 设置接收超时，避免 recvfrom 永久阻塞，便于循环内继续做错误处理等 */
     struct timeval timeout = {
         .tv_sec  = 1,
         .tv_usec = 0,
@@ -133,6 +146,7 @@ bool udp_comm_init(const char *server_ip, uint16_t server_port,
     ESP_LOGI(TAG, "UDP socket ready, server=%s:%u, local_port=%u",
              server_ip, server_port, local_port);
 
+    /* 启动接收任务：后续收到 UDP 数据将通过回调通知上层 */
     BaseType_t ret = xTaskCreate(udp_rx_task, "udp_rx_task",
                                  4096, NULL, 5, NULL);
     if (ret != pdPASS) {
@@ -157,6 +171,7 @@ bool udp_comm_send(const char *data, size_t len)
         return false;
     }
 
+    /* sendto(): 直接指定目的地址（s_dest_addr），无需 connect() */
     int err = sendto(s_sock, data, len, 0,
                      (struct sockaddr *)&s_dest_addr, sizeof(s_dest_addr));
     if (err < 0) {

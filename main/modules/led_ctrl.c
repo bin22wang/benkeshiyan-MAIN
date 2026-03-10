@@ -37,9 +37,9 @@ static void led_blink_task(void *pvParameters)
             case LED_MODE_DISCONNECTED:
                 /* Fast blink: 500ms on / 500ms off */
                 gpio_set_level(LED_GPIO_NUM, LED_ON);
-                vTaskDelay(pdMS_TO_TICKS(500));
+                vTaskDelay(pdMS_TO_TICKS(200));
                 gpio_set_level(LED_GPIO_NUM, LED_OFF);
-                vTaskDelay(pdMS_TO_TICKS(500));
+                vTaskDelay(pdMS_TO_TICKS(200));
                 break;
 
             case LED_MODE_CONNECTED:
