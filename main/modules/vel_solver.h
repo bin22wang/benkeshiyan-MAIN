@@ -176,6 +176,7 @@ typedef enum {
     VEL_MODE_IDLE       = 0, /**< 无控制，输出全零                         */
     VEL_MODE_POSITION   = 1, /**< 位姿闭环（移动指令 / Leader 自主导航）   */
     VEL_MODE_FOLLOWER   = 2, /**< 编队 Follower 控制                       */
+    VEL_MODE_MANUAL     = 3, /**< 手动遥控（前端键盘直接下发速度透传）      */
 } vel_solver_mode_t;
 
 /**
@@ -295,6 +296,18 @@ void vel_solver_update_follower_offset(float offset_x, float offset_y, float off
  *        输出全零速度。
  */
 void vel_solver_stop(void);
+
+/**
+ * @brief 设置手动遥控速度（对应 [M,CARn,vx,vy,vz] 指令）。
+ *
+ * 调用后进入 VEL_MODE_MANUAL 模式，vel_solver_compute() 直接透传本次速度，
+ * 不经过任何 PID 闭环解算。适用于前端键盘实时遥控场景。
+ *
+ * @param target_vx  期望线速度 X（m/s，车头朝前为正）
+ * @param target_vy  期望线速度 Y（m/s，车头朝左为正）
+ * @param target_vz  期望角速度 Z（归一化 [-1,1]）
+ */
+void vel_solver_set_manual_speed(float target_vx, float target_vy, float target_vz);
 
 /* ========================================================================
  * 解算入口 API

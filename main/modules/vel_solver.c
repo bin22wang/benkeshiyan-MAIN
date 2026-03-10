@@ -42,6 +42,11 @@ static uint8_t s_still_count = 0;
 static float s_prev_error_x = 0.0f;
 static float s_prev_error_y = 0.0f;
 
+/* 手动遥控速度（VEL_MODE_MANUAL 模式下直接透传） */
+static float s_manual_vx = 0.0f;
+static float s_manual_vy = 0.0f;
+static float s_manual_vz = 0.0f;
+
 /* yaw PID */ 
 static float    s_yaw_integral     = 0.0f;
 static float    s_last_yaw_error   = 0.0f;
@@ -179,6 +184,16 @@ void vel_solver_update_follower_offset(float offset_x, float offset_y, float off
     ESP_LOGI(TAG, "update follower offset=(%.2f, %.2f, %.1f)", offset_x, offset_y, offset_yaw);
 }
 
+void vel_solver_set_manual_speed(float target_vx, float target_vy, float target_vz)
+{
+    s_manual_vx = target_vx;
+    s_manual_vy = target_vy;
+    s_manual_vz = target_vz;
+    s_mode = VEL_MODE_MANUAL;
+    reset_control_state();
+    ESP_LOGI(TAG, "set manual speed (%.3f, %.3f, %.3f)", target_vx, target_vy, target_vz);
+}
+
 void vel_solver_stop(void)
 {
     s_mode = VEL_MODE_IDLE;
@@ -231,7 +246,11 @@ bool vel_solver_compute(vel_output_t *out)
         return false;
     }
 
-    if (s_mode == VEL_MODE_POSITION) {
+    if (s_mode == VEL_MODE_MANUAL) {
+        control_vx = s_manual_vx;
+        control_vy = s_manual_vy;
+        control_vz = s_manual_vz;
+    } else if (s_mode == VEL_MODE_POSITION) {
         /* Auto_Adjust_Position_And_Yaw 对齐实现 */
         float error_x = s_target_x - s_own.x;
         float error_y = s_target_y - s_own.y;
@@ -259,7 +278,7 @@ bool vel_solver_compute(vel_output_t *out)
             control_vy = base_speed * sinf(relative_target_angle * (float)M_PI / 180.0f);
             control_vz = yaw_pid_control(s_own.yaw, s_target_yaw);
         }
-    } else if (s_mode == VEL_MODE_FOLLOWER) {
+    } else if (s_mode == VEL_MODE_FOLLOWER) {  /* NOLINT: intentional else-if chain */
         /* Formation_Follower_Control 对齐实现 */
         const proto_car_state_t *leader = proto_get_car_state(s_leader_id);
         if (!leader || !leader->valid) {

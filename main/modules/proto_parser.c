@@ -708,12 +708,43 @@ static void parse_legacy_topology_toggle(const char *data)
      * ==================================================================== */
 }
 
+/* -----------------------------------------------------------------------
+ * 消息类型 12：手动遥控指令（Manual Control）
+ * 格式：[M,CARn,vx,vy,vz]
+ *   CARn - 目标车辆 ID（只处理发给本车的）
+ *   vx   - 线速度 X（m/s，车头朝前为正）
+ *   vy   - 线速度 Y（m/s，车头朝左为正）
+ *   vz   - 角速度 Z（归一化 [-1,1]，逆时针为正）
+ * ---------------------------------------------------------------------- */
+static void parse_manual_cmd(const char *data)
+{
+    char  target[PROTO_CAR_ID_LEN];
+    float vx, vy, vz;
+
+    int n = sscanf(data, "[M,%9[^,],%f,%f,%f]", target, &vx, &vy, &vz);
+    if (n != 4) {
+        ESP_LOGW(TAG, "[MANUAL] parse failed: %s", data);
+        return;
+    }
+
+    /* 仅处理发给本车的指令 */
+    if (strcmp(target, s_own_id) != 0) {
+        ESP_LOGD(TAG, "[MANUAL] for %s (not us, skip)", target);
+        return;
+    }
+
+    ESP_LOGI(TAG, "[MANUAL] target=%s  vel=(%.3f, %.3f, %.3f)", target, vx, vy, vz);
+
+    /* 解算模块：直接透传手动速度 */
+    vel_solver_set_manual_speed(vx, vy, vz);
+}
+
 /* ========================================================================
  * 主解析入口
  * ========================================================================
  * 根据消息头字符选择子解析器。
  * 括号格式 [X,...] 按第二个字符分发：
- *   T → 拓扑控制     C → 移动指令     F → 编队指令
+ *   T → 拓扑控制     C → 移动指令     F → 编队指令     M → 手动遥控
  *   0-9 → 广播车辆状态（数字表示车辆数）
  * 非括号格式按字符串前缀匹配旧版消息。
  * ======================================================================*/
@@ -729,6 +760,7 @@ void proto_parse_message(const char *data, size_t len)
             case 'T': parse_topology(data);      return;
             case 'C': parse_move_cmd(data);      return;
             case 'F': parse_formation_cmd(data); return;
+            case 'M': parse_manual_cmd(data);    return;
             default:  break;
         }
         /* 数字开头 → 广播车辆状态 */
