@@ -31,9 +31,14 @@
 #include "modules/proto_parser.h"
 #include "modules/uart.h"
 #include "modules/vel_solver.h"
+#include "disp_mgr.h"
+#include "xl9555.h"
 
 /* ========== 模块日志标签 ========== */
 static const char *TAG = "app_main";
+
+/* Display role state (formation leader/follower overrides manual/position). */
+static sys_mode_t s_role_mode = SYS_MODE_IDLE;
 
 /* ========== UDP 通信配置 ========== */
 /** 服务器 IP 地址 */
@@ -77,6 +82,12 @@ static const char *lookup_car_id_by_mac(const uint8_t mac[6])
 /* ========== 状态上报间隔 ========== */
 /** 向服务器上报本车状态的间隔（毫秒）；100 ms = 10 Hz，与 STM32 端发送频率一致 */
 #define STATE_REPORT_INTERVAL_MS   100
+
+/** 显示状态检查间隔（毫秒） */
+#define DISP_UPDATE_INTERVAL_MS    50
+
+/** LCD/XL9555 自检开关 */
+#define LCD_DIAG_SELF_TEST         0
 
 /* ========== 业务回调函数 ========== */
 
@@ -132,15 +143,18 @@ static void on_udp_data_received(const char *data, size_t len,
             case FORMATION_CMD_STOP:
                 ESP_LOGI(TAG, "[CMD_FORMATION] STOP");
                 led_ctrl_set_mode(LED_MODE_CONNECTED);  /* 编队结束，恢复待命状态 */
+                s_role_mode = SYS_MODE_IDLE;
                 break;
             case FORMATION_CMD_SET_LEADER:
                 ESP_LOGI(TAG, "[CMD_FORMATION] SET_LEADER");
                 led_ctrl_set_mode(LED_MODE_ACTIVE);
+                s_role_mode = SYS_MODE_LEADER;
                 break;
             case FORMATION_CMD_SET_FOLLOWER:
                 ESP_LOGI(TAG, "[CMD_FORMATION] FOLLOWER of %s, offset=(%.2f,%.2f,%.1f)",
                          fm.leader_id, fm.offset_x, fm.offset_y, fm.offset_yaw);
                 led_ctrl_set_mode(LED_MODE_ACTIVE);
+                s_role_mode = SYS_MODE_FOLLOW;
                 break;
             case FORMATION_CMD_UPDATE_OFFSET:
                 ESP_LOGI(TAG, "[CMD_FORMATION] UPDATE_OFFSET (%.2f,%.2f,%.1f)",
@@ -203,6 +217,111 @@ static void state_report_task(void *pvParameters)
     vTaskDelete(NULL);
 }
 
+#if LCD_DIAG_SELF_TEST
+static void lcd_diag_self_test(void)
+{
+    ESP_LOGI(TAG, "LCD diag: start");
+    ESP_LOGI(TAG, "XL9555 I2C cfg: port=%d sda=%d scl=%d speed=%d addr=0x%02X",
+             (int)XL9555_I2C_PORT,
+             (int)XL9555_I2C_SDA_GPIO,
+             (int)XL9555_I2C_SCL_GPIO,
+             (int)XL9555_I2C_SPEED_HZ,
+             (unsigned int)XL9555_ADDR);
+
+    esp_err_t ret = xl9555_init();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "XL9555 init failed: %s", esp_err_to_name(ret));
+        return;
+    }
+
+    uint8_t out_reg[2] = {0};
+    if (xl9555_read_bytes(XL9555_OUTPUT_PORT0_REG, out_reg, sizeof(out_reg)) == ESP_OK) {
+        uint16_t out_val = (uint16_t)((out_reg[1] << 8) | out_reg[0]);
+        ESP_LOGI(TAG, "XL9555 OUT=0x%04X", out_val);
+    } else {
+        ESP_LOGW(TAG, "XL9555 read OUT failed");
+    }
+
+    uint8_t in_reg[2] = {0};
+    if (xl9555_read_bytes(XL9555_INPUT_PORT0_REG, in_reg, sizeof(in_reg)) == ESP_OK) {
+        uint16_t in_val = (uint16_t)((in_reg[1] << 8) | in_reg[0]);
+        ESP_LOGI(TAG, "XL9555 IN=0x%04X", in_val);
+    } else {
+        ESP_LOGW(TAG, "XL9555 read IN failed");
+    }
+
+    ESP_LOGI(TAG, "LCD diag: toggle SLCD_PWR_IO");
+    uint16_t val = xl9555_pin_write(SLCD_PWR_IO, 1);
+    ESP_LOGI(TAG, "SLCD_PWR_IO=1 OUT=0x%04X", val);
+    vTaskDelay(pdMS_TO_TICKS(80));
+    val = xl9555_pin_write(SLCD_PWR_IO, 0);
+    ESP_LOGI(TAG, "SLCD_PWR_IO=0 OUT=0x%04X", val);
+    vTaskDelay(pdMS_TO_TICKS(80));
+    val = xl9555_pin_write(SLCD_PWR_IO, 1);
+    ESP_LOGI(TAG, "SLCD_PWR_IO=1 OUT=0x%04X", val);
+
+    ESP_LOGI(TAG, "LCD diag: toggle SLCD_RST_IO");
+    val = xl9555_pin_write(SLCD_RST_IO, 0);
+    ESP_LOGI(TAG, "SLCD_RST_IO=0 OUT=0x%04X", val);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    val = xl9555_pin_write(SLCD_RST_IO, 1);
+    ESP_LOGI(TAG, "SLCD_RST_IO=1 OUT=0x%04X", val);
+
+    ESP_LOGI(TAG, "LCD diag: done");
+}
+#endif
+
+static sys_mode_t resolve_display_mode(vel_solver_mode_t mode)
+{
+    if (s_role_mode == SYS_MODE_LEADER || s_role_mode == SYS_MODE_FOLLOW) {
+        return s_role_mode;
+    }
+
+    switch (mode) {
+        case VEL_MODE_IDLE:
+            return SYS_MODE_IDLE;
+        case VEL_MODE_FOLLOWER:
+            return SYS_MODE_FOLLOW;
+        case VEL_MODE_MANUAL:
+            return SYS_MODE_MANUAL;
+        case VEL_MODE_POSITION:
+        default:
+            return SYS_MODE_MANUAL;
+    }
+}
+
+static void display_task(void *pvParameters)
+{
+    const char *own_car_id = (const char *)pvParameters;
+    uint32_t last_state_ts = 0;
+    bool last_wifi_connected = false;
+    bool last_pose_valid = false;
+    float last_x = 0.0f;
+    float last_y = 0.0f;
+    float last_yaw = 0.0f;
+
+    while (1) {
+        const vel_own_state_t *own = vel_solver_get_own_state();
+        bool wifi_connected = wifi_mgr_is_connected();
+
+        if (own->valid && own->timestamp_ms != last_state_ts) {
+            sys_mode_t mode = resolve_display_mode(vel_solver_get_mode());
+            disp_mgr_update_status(own_car_id, wifi_connected, mode, own->x, own->y, own->yaw);
+            last_state_ts = own->timestamp_ms;
+            last_wifi_connected = wifi_connected;
+            last_pose_valid = true;
+            last_x = own->x;
+            last_y = own->y;
+            last_yaw = own->yaw;
+        } else if (last_pose_valid && wifi_connected != last_wifi_connected) {
+            sys_mode_t mode = resolve_display_mode(vel_solver_get_mode());
+            disp_mgr_update_status(own_car_id, wifi_connected, mode, last_x, last_y, last_yaw);
+            last_wifi_connected = wifi_connected;
+        }
+        vTaskDelay(pdMS_TO_TICKS(DISP_UPDATE_INTERVAL_MS));
+    }
+}
+
 /* ========== 设备 MAC 打印 ========== */
 
 /**
@@ -240,6 +359,9 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "============ System Starting ============");
 
+    /* Reduce log spam so LCD diag logs are visible */
+    esp_log_level_set("vel_solver", ESP_LOG_ERROR);
+
     /* --- Step 1: NVS init --- */
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -263,6 +385,12 @@ void app_main(void)
     /* --- Protocol parser & vel solver init --- */
     proto_parser_init(own_car_id);
     vel_solver_init(); /* 清空解算器状态，必须在 proto_parser_init() 之后调用 */
+
+#if LCD_DIAG_SELF_TEST
+    lcd_diag_self_test();
+#endif
+    disp_mgr_init();
+    xTaskCreate(display_task, "display_task", 4096, (void *)own_car_id, 3, NULL);
 
     /* --- UART bridge init --- */
     /* 启动串口桥接任务：负责与 STM32 交换状态/控制量（详见 modules/uart.c） */

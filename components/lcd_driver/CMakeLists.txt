@@ -1,0 +1,11 @@
+idf_component_register(
+    SRCS
+        "spi.c"
+        "lcd.c"
+    INCLUDE_DIRS
+        "include"
+    REQUIRES
+        driver
+        freertos
+        xl9555
+)

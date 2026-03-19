@@ -51,6 +51,9 @@ static EventGroupHandle_t s_wifi_event_group = NULL;
 /** 当前重连次数计数器 */
 static int s_retry_num = 0;
 
+/** Wi-Fi 连接状态（获取到 IP 后为 true） */
+static bool s_wifi_connected = false;
+
 /* ========== 内部函数 ========== */
 
 /**
@@ -70,6 +73,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
      */
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         /* Wi-Fi 驱动启动完成：发起第一次连接（后续是否成功由事件继续驱动） */
+        s_wifi_connected = false;
         esp_wifi_connect();
 
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
@@ -77,6 +81,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
          * 断线事件：可能由信号弱、AP 重启、密码错误等引起。
          * 这里按重试次数自动重连，超过上限则置 FAIL 位，唤醒等待方。
          */
+        s_wifi_connected = false;
         if (s_retry_num < WIFI_MAX_RETRY) {
             esp_wifi_connect();
             s_retry_num++;
@@ -96,6 +101,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_num = 0;
+        s_wifi_connected = true;
         /* 置位连接成功标志，唤醒等待方 */
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
     }
@@ -173,6 +179,12 @@ bool wifi_mgr_init(void)
         return true;
     }
 
+    s_wifi_connected = false;
     ESP_LOGE(TAG, "Wi-Fi connect failed, SSID: %s", WIFI_SSID);
     return false;
+}
+
+bool wifi_mgr_is_connected(void)
+{
+    return s_wifi_connected;
 }

@@ -34,6 +34,11 @@ extern "C" {
  */
 bool wifi_mgr_init(void);
 
+/**
+ * @brief Get current Wi-Fi connection state (true = connected with IP).
+ */
+bool wifi_mgr_is_connected(void);
+
 #ifdef __cplusplus
 }
 #endif
