@@ -127,7 +127,7 @@ extern "C" {
  * STM32: Yaw_KP = 0.12f
  * 输出单位：[-1, 1]，直接作为 Drive_Motor 的 Vz 参数
  */
-#define VEL_SOLVER_YAW_KP           0.12f
+#define VEL_SOLVER_YAW_KP           0.05f
 
 /**
  * Yaw PID 积分系数
