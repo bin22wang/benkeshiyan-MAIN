@@ -71,6 +71,7 @@ static void reset_control_state(void)
     s_last_pid_state_ts = 0;
 }
 
+
 /**
  * Yaw PID (fixed: dead-band + state-gated integration)
  *
@@ -160,6 +161,16 @@ void vel_solver_set_position_target(float target_x, float target_y, float target
 
 void vel_solver_set_leader_mode(void)
 {
+    /* Enter leader mode: hold current pose until a new move command arrives. */
+    if (s_own.valid) {
+        s_target_x = s_own.x;
+        s_target_y = s_own.y;
+        s_target_yaw = s_own.yaw;
+    } else {
+        s_target_x = 0.0f;
+        s_target_y = 0.0f;
+        s_target_yaw = 0.0f;
+    }
     s_mode = VEL_MODE_POSITION;
     reset_control_state();
 }
