@@ -57,10 +57,10 @@ extern "C" {
 
 /**
  * 最大线速度输出（m/s），直接送入 STM32 Drive_Motor(Vx,Vy,Vz)
- * STM32: max_linear_speed = 0.3f / Formation_max_speed = 0.3f
+ * STM32: max_linear_speed = 0.7f / Formation_max_speed = 0.7f
  * 为 Follower 预留额外线速度裕量，用于追赶位置误差
  */
-#define VEL_SOLVER_MAX_SPEED        0.45f
+#define VEL_SOLVER_MAX_SPEED        0.7f
 
 
 /**
