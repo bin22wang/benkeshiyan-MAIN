@@ -43,15 +43,7 @@ extern "C" {
  * 对应关系（STM32变量名 -> 本宏名）：
  *   position_tolerance   -> VEL_SOLVER_POS_TOLERANCE
  *   max_linear_speed     -> VEL_SOLVER_MAX_SPEED
- *   Formation_min_speed  -> VEL_SOLVER_MIN_SPEED
  *   Pos_KP               -> VEL_SOLVER_POS_KP
- *   Formation_KP         -> VEL_SOLVER_KP
- *   Formation_KD         -> VEL_SOLVER_KD
- *   Formation_tolerance  -> VEL_SOLVER_TOLERANCE
- *   Formation_velocity_gain -> VEL_SOLVER_VEL_GAIN
- *   VELOCITY_THRESHOLD   -> VEL_SOLVER_MOTION_THRESHOLD
- *   (leader 死区)        -> VEL_SOLVER_LEADER_DEADZONE
- *   ZERO_VELOCITY_COUNT_THRESHOLD -> VEL_SOLVER_STILL_COUNT
  *   Yaw_KP/KI/KD         -> VEL_SOLVER_YAW_KP/KI/KD
  * ======================================================================*/
 
@@ -62,23 +54,14 @@ extern "C" {
  */
 #define VEL_SOLVER_POS_TOLERANCE    0.05f
 
-/**
- * 编队跟随位置误差容差（米）
- * STM32: Formation_tolerance = 0.15f
- */
-#define VEL_SOLVER_TOLERANCE        0.15f
 
 /**
  * 最大线速度输出（m/s），直接送入 STM32 Drive_Motor(Vx,Vy,Vz)
  * STM32: max_linear_speed = 0.3f / Formation_max_speed = 0.3f
+ * 为 Follower 预留额外线速度裕量，用于追赶位置误差
  */
-#define VEL_SOLVER_MAX_SPEED        0.3f
+#define VEL_SOLVER_MAX_SPEED        0.45f
 
-/**
- * 最小非零线速度（m/s），避免死区
- * STM32: Formation_min_speed = 0.05f
- */
-#define VEL_SOLVER_MIN_SPEED        0.05f
 
 /**
  * 独立移动位置比例系数（对应 Auto_Adjust_Position_And_Yaw）
@@ -86,41 +69,7 @@ extern "C" {
  */
 #define VEL_SOLVER_POS_KP           0.5f
 
-/**
- * 编队 Follower PD 比例系数
- * STM32: Formation_KP = 0.5f
- */
-#define VEL_SOLVER_KP               0.5f
-
-/**
- * 编队 Follower PD 微分系数
- * STM32: Formation_KD = 1.8f
- */
-#define VEL_SOLVER_KD               1.8f
-
-/**
- * 速度跟随模式增益（前馈乘数）
- * STM32: Formation_velocity_gain = 1.05f
- */
-#define VEL_SOLVER_VEL_GAIN         1.05f
-
-/**
- * leader 速度死区（m/s），低于此值视为 0
- * STM32: 0.04f (formation_control.c 中硬编码)
- */
-#define VEL_SOLVER_LEADER_DEADZONE  0.04f
-
-/**
- * 运动状态判断速度阈值（m/s）
- * STM32: VELOCITY_THRESHOLD = 0.05f
- */
-#define VEL_SOLVER_MOTION_THRESHOLD 0.05f
-
-/**
- * 连续低速帧数，超过此值才判定 leader 静止（防误判）
- * STM32: ZERO_VELOCITY_COUNT_THRESHOLD = 4
- */
-#define VEL_SOLVER_STILL_COUNT      4
+/* Formation tuning moved to formation_algo.h. */
 
 /**
  * Yaw PID 比例系数

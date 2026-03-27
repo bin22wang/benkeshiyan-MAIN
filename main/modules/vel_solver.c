@@ -13,6 +13,7 @@
 
 #include "vel_solver.h"
 #include "proto_parser.h"
+#include "formation_algo.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -37,11 +38,6 @@ static float s_off_x = 0.0f;
 static float s_off_y = 0.0f;
 static float s_off_yaw = 0.0f;
 
-/* follower 状态 */
-static uint8_t s_still_count = 0;
-static float s_prev_error_x = 0.0f;
-static float s_prev_error_y = 0.0f;
-
 /* 手动遥控速度（VEL_MODE_MANUAL 模式下直接透传） */
 static float s_manual_vx = 0.0f;
 static float s_manual_vy = 0.0f;
@@ -62,9 +58,6 @@ static float clamp_float(float value, float low, float high)
 
 static void reset_control_state(void)
 {
-    s_prev_error_x      = 0.0f;
-    s_prev_error_y      = 0.0f;
-    s_still_count       = 0;
     s_yaw_integral      = 0.0f;
     s_last_yaw_error    = 0.0f;
     s_last_pid_output   = 0.0f;
@@ -303,112 +296,25 @@ bool vel_solver_compute(vel_output_t *out)
             reset_control_state();
             return false;
         }
+        formation_out_t follower_out = {0};
+        formation_calc_follower_vel(leader->x,
+                                    leader->y,
+                                    leader->yaw,
+                                    leader->vx,
+                                    leader->vy,
+                                    s_own.x,
+                                    s_own.y,
+                                    s_own.yaw,
+                                    s_off_x,
+                                    s_off_y,
+                                    s_off_yaw,
+                                    FORMATION_KP,
+                                    FORMATION_KD,
+                                    &follower_out);
 
-        float leader_vx = leader->vx;
-        float leader_vy = leader->vy;
-        if (fabsf(leader_vx) < VEL_SOLVER_LEADER_DEADZONE) leader_vx = 0.0f;
-        if (fabsf(leader_vy) < VEL_SOLVER_LEADER_DEADZONE) leader_vy = 0.0f;
-
-        float speed_magnitude = sqrtf(leader_vx * leader_vx + leader_vy * leader_vy);
-        if (speed_magnitude > VEL_SOLVER_MOTION_THRESHOLD) {
-            s_still_count = 0;
-        } else {
-            s_still_count++;
-        }
-        uint8_t leader_moving = (s_still_count < VEL_SOLVER_STILL_COUNT) ? 1 : 0;
-
-        float leader_rad = leader->yaw * (float)M_PI / 180.0f;
-        float target_x_world = leader->x + s_off_x * cosf(leader_rad) - s_off_y * sinf(leader_rad);
-        float target_y_world = leader->y + s_off_x * sinf(leader_rad) + s_off_y * cosf(leader_rad);
-        float target_yaw_world = leader->yaw + s_off_yaw;
-        while (target_yaw_world >= 360.0f) target_yaw_world -= 360.0f;
-        while (target_yaw_world < 0.0f) target_yaw_world += 360.0f;
-
-        float error_x = target_x_world - s_own.x;
-        float error_y = target_y_world - s_own.y;
-        float distance = sqrtf(error_x * error_x + error_y * error_y);
-
-        uint8_t should_use_speed_follow = 0;
-        if (leader_moving) {
-            if (distance < VEL_SOLVER_TOLERANCE * 2.0f) {
-                should_use_speed_follow = 1;
-            } else if (distance < VEL_SOLVER_TOLERANCE * 3.0f) {
-                float leader_speed_angle = atan2f(leader_vy, leader_vx);
-                float error_angle = atan2f(error_y, error_x);
-                float angle_diff = fabsf(leader_speed_angle - error_angle);
-                if (angle_diff < (float)M_PI / 4.0f || angle_diff > 7.0f * (float)M_PI / 4.0f) {
-                    should_use_speed_follow = 1;
-                }
-            }
-        }
-
-        if (should_use_speed_follow) {
-            control_vx = leader_vx * VEL_SOLVER_VEL_GAIN;
-            control_vy = leader_vy * VEL_SOLVER_VEL_GAIN;
-
-            float yaw_difference = leader->yaw - s_own.yaw;
-            while (yaw_difference > 180.0f) yaw_difference -= 360.0f;
-            while (yaw_difference < -180.0f) yaw_difference += 360.0f;
-            float yaw_diff_rad = yaw_difference * (float)M_PI / 180.0f;
-            if (fabsf(yaw_difference) > 10.0f) {
-                float rotated_vx = control_vx * cosf(yaw_diff_rad) - control_vy * sinf(yaw_diff_rad);
-                float rotated_vy = control_vx * sinf(yaw_diff_rad) + control_vy * cosf(yaw_diff_rad);
-                control_vx = rotated_vx;
-                control_vy = rotated_vy;
-            }
-
-            if (distance > VEL_SOLVER_TOLERANCE) {
-                float base_gain = 0.05f;
-                float dynamic_gain = 0.0f;
-                if (distance > VEL_SOLVER_TOLERANCE && distance < 1.0f) {
-                    dynamic_gain = (distance - VEL_SOLVER_TOLERANCE) * 0.1f;
-                } else if (distance >= 1.0f) {
-                    dynamic_gain = 0.15f;
-                }
-                float total_position_gain = base_gain + dynamic_gain;
-                float max_correction_speed = VEL_SOLVER_MAX_SPEED * 0.4f;
-
-                float error_rad = atan2f(error_y, error_x);
-                float error_angle_relative = error_rad - (s_own.yaw * (float)M_PI / 180.0f);
-                float correction_vx = total_position_gain * distance * cosf(error_angle_relative);
-                float correction_vy = total_position_gain * distance * sinf(error_angle_relative);
-
-                float correction_speed = sqrtf(correction_vx * correction_vx + correction_vy * correction_vy);
-                if (correction_speed > max_correction_speed) {
-                    correction_vx = correction_vx * max_correction_speed / correction_speed;
-                    correction_vy = correction_vy * max_correction_speed / correction_speed;
-                }
-
-                control_vx += correction_vx;
-                control_vy += correction_vy;
-            }
-        } else {
-            float error_derivative_x = error_x - s_prev_error_x;
-            float error_derivative_y = error_y - s_prev_error_y;
-
-            control_vx = VEL_SOLVER_KP * error_x + VEL_SOLVER_KD * error_derivative_x;
-            control_vy = VEL_SOLVER_KP * error_y + VEL_SOLVER_KD * error_derivative_y;
-
-            float distance_factor = 1.0f;
-            if (distance < VEL_SOLVER_SLOWDOWN_RADIUS) {
-                distance_factor = 0.2f + 0.8f * (distance / VEL_SOLVER_SLOWDOWN_RADIUS);
-            }
-            control_vx *= distance_factor;
-            control_vy *= distance_factor;
-
-            float control_angle_global = atan2f(control_vy, control_vx);
-            float control_angle_relative = control_angle_global - (s_own.yaw * (float)M_PI / 180.0f);
-            float control_magnitude = sqrtf(control_vx * control_vx + control_vy * control_vy);
-
-            control_vx = control_magnitude * cosf(control_angle_relative);
-            control_vy = control_magnitude * sinf(control_angle_relative);
-        }
-
-        float yaw_gain = should_use_speed_follow ? 0.8f : 1.2f;
-        control_vz = yaw_pid_control(s_own.yaw, target_yaw_world) * yaw_gain;
-
-        s_prev_error_x = error_x;
-        s_prev_error_y = error_y;
+        control_vx = follower_out.target_vx;
+        control_vy = follower_out.target_vy;
+        control_vz = follower_out.target_vz;
 
         float control_speed = sqrtf(control_vx * control_vx + control_vy * control_vy);
         if (control_speed > VEL_SOLVER_MAX_SPEED) {
