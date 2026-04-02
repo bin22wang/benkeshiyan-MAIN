@@ -8,7 +8,7 @@ extern "C" {
 #define FORMATION_POS_TOLERANCE        0.15f
 #define FORMATION_MIN_SPEED            0.05f
 #define FORMATION_KP                   0.7f
-#define FORMATION_KD                   0.8f
+#define FORMATION_KD                   0.0f
 #define FORMATION_VEL_GAIN             1.05f
 #define FORMATION_LEADER_DEADZONE      0.04f
 #define FORMATION_MOTION_THRESHOLD     0.05f
