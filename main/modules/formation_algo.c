@@ -6,6 +6,7 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+// 将角度值限制在 [-180, 180) 范围内
 static float wrap_deg(float deg)
 {
     while (deg > 180.0f) deg -= 360.0f;
@@ -71,24 +72,44 @@ void formation_calc_follower_vel(float L_x,
     if (err_dist < FORMATION_POS_TOLERANCE) {
         err_x = 0.0f;
         err_y = 0.0f;
+
+        s_filtered_d_err_x = 0.0f; 
+        s_filtered_d_err_y = 0.0f;
     }
 
+    // 位置环反馈控制 （速度输出）
     float V_fb_x = kp_pos * err_x + kd_pos * s_filtered_d_err_x;
     float V_fb_y = kp_pos * err_y + kd_pos * s_filtered_d_err_y;
 
     // 前馈控制
     /* Step 3: leader velocity feedforward in global frame. */
+
+    // 领航者速度死区处理，低于一定阈值视为静止，避免小幅度速度引起的抖动
+    if (fabsf(L_vx) < FORMATION_LEADER_DEADZONE) { // 这个宏在头文件里是 0.04f
+        L_vx = 0.0f;
+    }
+    if (fabsf(L_vy) < FORMATION_LEADER_DEADZONE) {
+        L_vy = 0.0f;
+    }
+    
+    // 将领航者的速度从其坐标系转换到全局坐标系，得到前馈速度
     float V_ff_x = L_vx * cosf(L_yaw) - L_vy * sinf(L_yaw);
     float V_ff_y = L_vx * sinf(L_yaw) + L_vy * cosf(L_yaw);
 
     /* 1. 速度合并 (世界坐标系下) */
     /* Step 4: compose and project to follower body frame. */
+    // 将前馈和反馈速度叠加，并从全局坐标系转换到跟随者的坐标系，得到最终的速度指令
     float V_global_x = V_ff_x + V_fb_x;
     float V_global_y = V_ff_y + V_fb_y;
     out->target_vx = V_global_x * cosf(F_yaw) + V_global_y * sinf(F_yaw);
     out->target_vy = -V_global_x * sinf(F_yaw) + V_global_y * cosf(F_yaw);
 
     /* Step 5: yaw control. */
+    // 航向控制只使用比例项，直接根据领航者与跟随者的航向误差计算角速度指令
+    // 误差小于一定阈值时不控制旋转，避免小幅度误差引起的抖动
     float err_yaw = wrap_deg(T_yaw - F_yaw_deg);
+    if (fabsf(err_yaw) < 0.8f) { // 0.8度以内不控制旋转，避免小幅度误差引起的抖动
+        err_yaw = 0.0f;
+    }
     out->target_vz = err_yaw * FORMATION_YAW_KP;
 }
