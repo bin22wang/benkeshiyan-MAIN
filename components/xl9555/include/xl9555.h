@@ -4,11 +4,11 @@
 #include <stdint.h>
 
 #include "driver/gpio.h"
-#include "driver/i2c_master.h"
+#include "driver/i2c.h"
 #include "esp_err.h"
 
 #ifndef XL9555_I2C_PORT
-#define XL9555_I2C_PORT I2C_NUM_0
+#define XL9555_I2C_PORT I2C_NUM_1
 #endif
 
 #ifndef XL9555_I2C_SPEED_HZ

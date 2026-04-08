@@ -19,7 +19,15 @@ typedef enum {
     SYS_MODE_MANUAL       // Displayed as OVERRIDE
 } sys_mode_t;
 
+typedef enum {
+    DISP_PAGE_STATUS = 0,
+    DISP_PAGE_TOF
+} disp_page_t;
+
 void disp_mgr_init(void);
+
+void disp_mgr_set_page(disp_page_t page);
+void disp_mgr_next_page(void);
 
 /**
  * @brief Update telemetry data.
@@ -27,6 +35,9 @@ void disp_mgr_init(void);
  */
 void disp_mgr_update_status(const char *car_id, bool wifi_connected,
                             sys_mode_t mode, float x, float y, float yaw);
+
+void disp_mgr_update_tof(uint16_t left_mm, bool left_ok,
+                         uint16_t right_mm, bool right_ok);
 
 #ifdef __cplusplus
 }

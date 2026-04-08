@@ -23,6 +23,7 @@
 #include "esp_event.h"
 #include "esp_system.h"
 #include "esp_mac.h"
+#include "driver/gpio.h"
 
 /* 各功能模块头文件 */
 #include "modules/wifi_mgr.h"
@@ -33,6 +34,7 @@
 #include "modules/vel_solver.h"
 #include "disp_mgr.h"
 #include "xl9555.h"
+#include "modules/tof_ctrl.h"
 
 /* ========== 模块日志标签 ========== */
 static const char *TAG = "app_main";
@@ -85,6 +87,14 @@ static const char *lookup_car_id_by_mac(const uint8_t mac[6])
 
 /** 显示状态检查间隔（毫秒） */
 #define DISP_UPDATE_INTERVAL_MS    50
+
+/** ToF 测距更新间隔（毫秒） */
+#define TOF_UPDATE_INTERVAL_MS     50
+
+/** BOOT 按键配置 */
+#define BOOT_KEY_GPIO              GPIO_NUM_0
+#define BOOT_KEY_ACTIVE_LEVEL      0
+#define BOOT_KEY_DEBOUNCE_MS       30
 
 /** LCD/XL9555 自检开关 */
 #define LCD_DIAG_SELF_TEST         0
@@ -322,6 +332,53 @@ static void display_task(void *pvParameters)
     }
 }
 
+static void boot_key_task(void *pvParameters)
+{
+    (void)pvParameters;
+
+    gpio_config_t cfg = {
+        .pin_bit_mask = (1ULL << BOOT_KEY_GPIO),
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    gpio_config(&cfg);
+
+    int last_level = gpio_get_level(BOOT_KEY_GPIO);
+    while (1) {
+        int level = gpio_get_level(BOOT_KEY_GPIO);
+        if (level == BOOT_KEY_ACTIVE_LEVEL && last_level != BOOT_KEY_ACTIVE_LEVEL) {
+            vTaskDelay(pdMS_TO_TICKS(BOOT_KEY_DEBOUNCE_MS));
+            level = gpio_get_level(BOOT_KEY_GPIO);
+            if (level == BOOT_KEY_ACTIVE_LEVEL) {
+                disp_mgr_next_page();
+                while (gpio_get_level(BOOT_KEY_GPIO) == BOOT_KEY_ACTIVE_LEVEL) {
+                    vTaskDelay(pdMS_TO_TICKS(10));
+                }
+            }
+        }
+        last_level = level;
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+static void tof_task(void *pvParameters)
+{
+    (void)pvParameters;
+
+    while (1) {
+        tof_dual_reading_t reading = {0};
+        if (tof_ctrl_read(&reading) == ESP_OK) {
+            disp_mgr_update_tof(reading.left_mm, reading.left_ok,
+                                reading.right_mm, reading.right_ok);
+        } else {
+            disp_mgr_update_tof(0, false, 0, false);
+        }
+        vTaskDelay(pdMS_TO_TICKS(TOF_UPDATE_INTERVAL_MS));
+    }
+}
+
 /* ========== 设备 MAC 打印 ========== */
 
 /**
@@ -391,6 +448,14 @@ void app_main(void)
 #endif
     disp_mgr_init();
     xTaskCreate(display_task, "display_task", 4096, (void *)own_car_id, 3, NULL);
+
+    if (tof_ctrl_init() == ESP_OK) {
+        xTaskCreate(tof_task, "tof_task", 4096, NULL, 3, NULL);
+    } else {
+        ESP_LOGW(TAG, "ToF init failed, skip ranging task");
+    }
+
+    xTaskCreate(boot_key_task, "boot_key_task", 4096, NULL, 3, NULL);
 
     /* --- UART bridge init --- */
     /* 启动串口桥接任务：负责与 STM32 交换状态/控制量（详见 modules/uart.c） */

@@ -27,10 +27,17 @@ typedef struct {
     float x;
     float y;
     float yaw;
+    uint16_t tof_left_mm;
+    uint16_t tof_right_mm;
+    bool tof_left_ok;
+    bool tof_right_ok;
     uint32_t last_rx_ms;
 } disp_state_t;
 
 static disp_state_t s_current_state = {0};
+
+static disp_page_t s_current_page = DISP_PAGE_STATUS;
+static bool s_page_dirty = true;
 
 static char s_last_car_id[16] = {0};
 static char s_last_wlan[12] = {0};
@@ -39,6 +46,9 @@ static char s_last_x[16] = {0};
 static char s_last_y[16] = {0};
 static char s_last_yaw[16] = {0};
 static uint16_t s_last_wlan_color = 0;
+
+static char s_last_tof_left[20] = {0};
+static char s_last_tof_right[20] = {0};
 
 static void hud_draw_point(uint16_t x, uint16_t y, uint16_t color)
 {
@@ -95,6 +105,19 @@ static void hud_draw_text_region(uint16_t x, uint16_t y, uint16_t w, uint16_t h,
     lcd_show_string(x, y, w, h, size, (char *)text, color);
 }
 
+static void hud_reset_cache(void)
+{
+    s_last_car_id[0] = '\0';
+    s_last_wlan[0] = '\0';
+    s_last_center[0] = '\0';
+    s_last_x[0] = '\0';
+    s_last_y[0] = '\0';
+    s_last_yaw[0] = '\0';
+    s_last_wlan_color = 0;
+    s_last_tof_left[0] = '\0';
+    s_last_tof_right[0] = '\0';
+}
+
 // Draw the static borders and texts only once to save CPU time
 static void draw_static_ui_framework(void)
 {
@@ -127,6 +150,25 @@ static void draw_static_ui_framework(void)
     lcd_show_string(13, 190, 36, 24, 24, "Y:", GRAY);
     lcd_show_string(190, 155, 40, 16, 16, "HDG:", GRAY);
 
+}
+
+static void draw_tof_ui_framework(void)
+{
+    const uint16_t max_x = (uint16_t)(LCD_WIDTH - 1);
+    const uint16_t max_y = (uint16_t)(LCD_HEIGHT - 1);
+
+    lcd_clear(BLACK);
+
+    hud_draw_line(0, 40, max_x, 40, GRAY);
+    hud_draw_line(0, 41, max_x, 41, DARKBLUE);
+    hud_fill(0, 0, 6, 40, CYAN);
+
+    lcd_show_string(12, 10, 200, 20, 20, "TOF RANGE", WHITE);
+    hud_draw_line(0, 140, max_x, 140, GRAY);
+    hud_draw_line(0, (uint16_t)(max_y - 1), max_x, (uint16_t)(max_y - 1), DARKBLUE);
+
+    lcd_show_string(20, 70, 80, 24, 24, "LEFT", GRAY);
+    lcd_show_string(20, 170, 80, 24, 24, "RIGHT", GRAY);
 }
 
 static void hud_draw_car_id(const char *car_id)
@@ -165,77 +207,110 @@ static void disp_refresh_task(void *pvParameters)
     draw_static_ui_framework();
 
     while (1) {
+        if (s_page_dirty) {
+            hud_reset_cache();
+            if (s_current_page == DISP_PAGE_STATUS) {
+                draw_static_ui_framework();
+            } else {
+                draw_tof_ui_framework();
+            }
+            s_page_dirty = false;
+        }
+
         current_time = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
         is_synced = (current_time - s_current_state.last_rx_ms) < 2000;
 
-        // === ZONE 1: Identity & Uplink (Top Bar) ===
-        if (hud_text_changed(s_last_car_id, sizeof(s_last_car_id), s_current_state.car_id)) {
-            hud_draw_car_id(s_current_state.car_id);
-        }
+        if (s_current_page == DISP_PAGE_STATUS) {
+            // === ZONE 1: Identity & Uplink (Top Bar) ===
+            if (hud_text_changed(s_last_car_id, sizeof(s_last_car_id), s_current_state.car_id)) {
+                hud_draw_car_id(s_current_state.car_id);
+            }
 
-        const char *wlan_text = s_current_state.wifi_connected ? "WLAN:OK" : "WLAN:ERR";
-        uint16_t wlan_color = s_current_state.wifi_connected ? UI_GREEN : UI_RED;
-        if (hud_text_changed(s_last_wlan, sizeof(s_last_wlan), wlan_text)
-            || wlan_color != s_last_wlan_color) {
-            hud_draw_text_region(200, 10, 96, 16, 16, wlan_text, wlan_color);
-            s_last_wlan_color = wlan_color;
-        }
+            const char *wlan_text = s_current_state.wifi_connected ? "WLAN:OK" : "WLAN:ERR";
+            uint16_t wlan_color = s_current_state.wifi_connected ? UI_GREEN : UI_RED;
+            if (hud_text_changed(s_last_wlan, sizeof(s_last_wlan), wlan_text)
+                || wlan_color != s_last_wlan_color) {
+                hud_draw_text_region(200, 10, 96, 16, 16, wlan_text, wlan_color);
+                s_last_wlan_color = wlan_color;
+            }
 
-        hud_fill(112, 8, 199, 26, BLACK);
+            hud_fill(112, 8, 199, 26, BLACK);
 
-        // === ZONE 2: Tactical Mode (Center) ===
-        {
-            const uint16_t center_y = 68;
-            const uint16_t center_h = 40;
-            const char *center_text = "OFFLINE";
-            uint16_t center_x = 55;
+            // === ZONE 2: Tactical Mode (Center) ===
+            {
+                const uint16_t center_y = 68;
+                const uint16_t center_h = 40;
+                const char *center_text = "OFFLINE";
+                uint16_t center_x = 55;
 
-            if (is_synced) {
-                switch (s_current_state.mode) {
-                    case SYS_MODE_IDLE:
-                        center_text = "IDLE";
-                        center_x = 100;
-                        break;
-                    case SYS_MODE_LEADER:
-                        center_text = "LEAD";
-                        center_x = 100;
-                        break;
-                    case SYS_MODE_FOLLOW:
-                        center_text = "FOLL";
-                        center_x = 100;
-                        break;
-                    case SYS_MODE_MANUAL:
-                        center_text = "CTRL";
-                        center_x = 100;
-                        break;
-                    default:
-                        center_text = "UNKN";
-                        center_x = 100;
-                        break;
+                if (is_synced) {
+                    switch (s_current_state.mode) {
+                        case SYS_MODE_IDLE:
+                            center_text = "IDLE";
+                            center_x = 100;
+                            break;
+                        case SYS_MODE_LEADER:
+                            center_text = "LEAD";
+                            center_x = 100;
+                            break;
+                        case SYS_MODE_FOLLOW:
+                            center_text = "FOLL";
+                            center_x = 100;
+                            break;
+                        case SYS_MODE_MANUAL:
+                            center_text = "CTRL";
+                            center_x = 100;
+                            break;
+                        default:
+                            center_text = "UNKN";
+                            center_x = 100;
+                            break;
+                    }
+                }
+
+                if (hud_text_changed(s_last_center, sizeof(s_last_center), center_text)) {
+                    hud_fill(40, 68, 280, 108, BLACK);
+                    lcd_show_string(center_x, center_y, 200, center_h, 40, (char *)center_text, GRAY);
+                    lcd_show_string((uint16_t)(center_x + 1), center_y, 200, center_h, 40, (char *)center_text, GRAY);
                 }
             }
 
-            if (hud_text_changed(s_last_center, sizeof(s_last_center), center_text)) {
-                hud_fill(40, 68, 280, 108, BLACK);
-                lcd_show_string(center_x, center_y, 200, center_h, 40, (char *)center_text, GRAY);
-                lcd_show_string((uint16_t)(center_x + 1), center_y, 200, center_h, 40, (char *)center_text, GRAY);
+            // === ZONE 3: Telemetry Data (Bottom) ===
+            snprintf(str_buf, sizeof(str_buf), "%+06.2f", s_current_state.x);
+            if (hud_text_changed(s_last_x, sizeof(s_last_x), str_buf)) {
+                hud_draw_text_region(50, 150, 108, 24, 24, str_buf, WHITE);
             }
-        }
 
-        // === ZONE 3: Telemetry Data (Bottom) ===
-        snprintf(str_buf, sizeof(str_buf), "%+06.2f", s_current_state.x);
-        if (hud_text_changed(s_last_x, sizeof(s_last_x), str_buf)) {
-            hud_draw_text_region(50, 150, 108, 24, 24, str_buf, WHITE);
-        }
+            snprintf(str_buf, sizeof(str_buf), "%+06.2f", s_current_state.y);
+            if (hud_text_changed(s_last_y, sizeof(s_last_y), str_buf)) {
+                hud_draw_text_region(50, 190, 108, 24, 24, str_buf, WHITE);
+            }
 
-        snprintf(str_buf, sizeof(str_buf), "%+06.2f", s_current_state.y);
-        if (hud_text_changed(s_last_y, sizeof(s_last_y), str_buf)) {
-            hud_draw_text_region(50, 190, 108, 24, 24, str_buf, WHITE);
-        }
+            snprintf(str_buf, sizeof(str_buf), "%05.1f", s_current_state.yaw);
+            if (hud_text_changed(s_last_yaw, sizeof(s_last_yaw), str_buf)) {
+                hud_draw_text_region(225, 185, 90, 24, 24, str_buf, YELLOW);
+            }
+        } else {
+            const char *left_label = s_current_state.tof_left_ok ? "L: %4u mm" : "L: ---- mm";
+            const char *right_label = s_current_state.tof_right_ok ? "R: %4u mm" : "R: ---- mm";
 
-        snprintf(str_buf, sizeof(str_buf), "%05.1f", s_current_state.yaw);
-        if (hud_text_changed(s_last_yaw, sizeof(s_last_yaw), str_buf)) {
-            hud_draw_text_region(225, 185, 90, 24, 24, str_buf, YELLOW);
+            if (s_current_state.tof_left_ok) {
+                snprintf(str_buf, sizeof(str_buf), left_label, s_current_state.tof_left_mm);
+            } else {
+                snprintf(str_buf, sizeof(str_buf), "%s", left_label);
+            }
+            if (hud_text_changed(s_last_tof_left, sizeof(s_last_tof_left), str_buf)) {
+                hud_draw_text_region(120, 70, 180, 24, 24, str_buf, WHITE);
+            }
+
+            if (s_current_state.tof_right_ok) {
+                snprintf(str_buf, sizeof(str_buf), right_label, s_current_state.tof_right_mm);
+            } else {
+                snprintf(str_buf, sizeof(str_buf), "%s", right_label);
+            }
+            if (hud_text_changed(s_last_tof_right, sizeof(s_last_tof_right), str_buf)) {
+                hud_draw_text_region(120, 170, 180, 24, 24, str_buf, WHITE);
+            }
         }
 
         // Run at 20 FPS for smooth updates
@@ -254,6 +329,12 @@ void disp_mgr_init(void)
     s_current_state.wifi_connected = false;
     s_current_state.mode = SYS_MODE_IDLE;
     s_current_state.last_rx_ms = 0; // Starts as LOST until data arrives
+    s_current_state.tof_left_mm = 0;
+    s_current_state.tof_right_mm = 0;
+    s_current_state.tof_left_ok = false;
+    s_current_state.tof_right_ok = false;
+    s_current_page = DISP_PAGE_STATUS;
+    s_page_dirty = true;
 
     xTaskCreate(disp_refresh_task, "disp_task", 4096, NULL, 3, NULL);
 }
@@ -271,4 +352,30 @@ void disp_mgr_update_status(const char *car_id, bool wifi_connected,
     s_current_state.y = y;
     s_current_state.yaw = yaw;
     s_current_state.last_rx_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+}
+
+void disp_mgr_update_tof(uint16_t left_mm, bool left_ok,
+                         uint16_t right_mm, bool right_ok)
+{
+    s_current_state.tof_left_mm = left_mm;
+    s_current_state.tof_right_mm = right_mm;
+    s_current_state.tof_left_ok = left_ok;
+    s_current_state.tof_right_ok = right_ok;
+}
+
+void disp_mgr_set_page(disp_page_t page)
+{
+    if (page != s_current_page) {
+        s_current_page = page;
+        s_page_dirty = true;
+    }
+}
+
+void disp_mgr_next_page(void)
+{
+    if (s_current_page == DISP_PAGE_STATUS) {
+        disp_mgr_set_page(DISP_PAGE_TOF);
+    } else {
+        disp_mgr_set_page(DISP_PAGE_STATUS);
+    }
 }
