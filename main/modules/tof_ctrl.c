@@ -38,6 +38,31 @@ static uint16_t tof_apply_calibration(float scale, float bias, uint16_t raw_mm)
     return (uint16_t)(calibrated + 0.5f);
 }
 
+static esp_err_t tof_read_once(tof_dual_reading_t *out)
+{
+    if (!out) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!s_inited) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    VL53L0X_RangingMeasurementData_t left_data = {0};
+    VL53L0X_RangingMeasurementData_t right_data = {0};
+
+    VL53L0X_Error left_status = VL53L0X_PerformSingleRangingMeasurement(&s_left_dev, &left_data);
+    VL53L0X_Error right_status = VL53L0X_PerformSingleRangingMeasurement(&s_right_dev, &right_data);
+
+    out->left_mm = left_data.RangeMilliMeter;
+    out->right_mm = right_data.RangeMilliMeter;
+    out->left_ok = (left_status == VL53L0X_ERROR_NONE) && (left_data.RangeStatus == 0);
+    out->right_ok = (right_status == VL53L0X_ERROR_NONE) && (right_data.RangeStatus == 0);
+
+    return (left_status == VL53L0X_ERROR_NONE || right_status == VL53L0X_ERROR_NONE)
+               ? ESP_OK
+               : ESP_FAIL;
+}
+
 static esp_err_t tof_i2c_init(void)
 {
     i2c_config_t conf = {
@@ -169,23 +194,10 @@ esp_err_t tof_ctrl_init(void)
 
 esp_err_t tof_ctrl_read(tof_dual_reading_t *out)
 {
-    if (!out) {
-        return ESP_ERR_INVALID_ARG;
+    esp_err_t ret = tof_read_once(out);
+    if (ret != ESP_OK) {
+        return ret;
     }
-    if (!s_inited) {
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    VL53L0X_RangingMeasurementData_t left_data = {0};
-    VL53L0X_RangingMeasurementData_t right_data = {0};
-
-    VL53L0X_Error left_status = VL53L0X_PerformSingleRangingMeasurement(&s_left_dev, &left_data);
-    VL53L0X_Error right_status = VL53L0X_PerformSingleRangingMeasurement(&s_right_dev, &right_data);
-
-    out->left_mm = left_data.RangeMilliMeter;
-    out->right_mm = right_data.RangeMilliMeter;
-    out->left_ok = (left_status == VL53L0X_ERROR_NONE) && (left_data.RangeStatus == 0);
-    out->right_ok = (right_status == VL53L0X_ERROR_NONE) && (right_data.RangeStatus == 0);
 
     if (out->left_ok) {
         out->left_mm = tof_apply_calibration(0.963f, -28.1f, out->left_mm);
@@ -194,7 +206,10 @@ esp_err_t tof_ctrl_read(tof_dual_reading_t *out)
         out->right_mm = tof_apply_calibration(0.997f, -27.3f, out->right_mm);
     }
 
-    return (left_status == VL53L0X_ERROR_NONE || right_status == VL53L0X_ERROR_NONE)
-               ? ESP_OK
-               : ESP_FAIL;
+    return ESP_OK;
+}
+
+esp_err_t tof_ctrl_read_raw(tof_dual_reading_t *out)
+{
+    return tof_read_once(out);
 }
