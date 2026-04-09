@@ -29,6 +29,17 @@ static VL53L0X_Dev_t s_left_dev = {0};
 static VL53L0X_Dev_t s_right_dev = {0};
 static bool s_inited = false;
 
+#define TOF_FILTER_WINDOW 5
+
+typedef struct {
+    uint16_t buf[TOF_FILTER_WINDOW];
+    uint8_t count;
+    uint8_t index;
+} tof_filter_t;
+
+static tof_filter_t s_left_filter = {0};
+static tof_filter_t s_right_filter = {0};
+
 static uint16_t tof_apply_calibration(float scale, float bias, uint16_t raw_mm)
 {
     float calibrated = scale * (float)raw_mm + bias;
@@ -36,6 +47,40 @@ static uint16_t tof_apply_calibration(float scale, float bias, uint16_t raw_mm)
         calibrated = 0.0f;
     }
     return (uint16_t)(calibrated + 0.5f);
+}
+
+static uint16_t tof_filter_apply(tof_filter_t *filt, uint16_t sample)
+{
+    filt->buf[filt->index] = sample;
+    filt->index = (uint8_t)((filt->index + 1) % TOF_FILTER_WINDOW);
+    if (filt->count < TOF_FILTER_WINDOW) {
+        filt->count++;
+    }
+
+    uint16_t temp[TOF_FILTER_WINDOW];
+    for (uint8_t i = 0; i < filt->count; i++) {
+        temp[i] = filt->buf[i];
+    }
+
+    for (uint8_t i = 1; i < filt->count; i++) {
+        uint16_t key = temp[i];
+        int j = (int)i - 1;
+        while (j >= 0 && temp[j] > key) {
+            temp[j + 1] = temp[j];
+            j--;
+        }
+        temp[j + 1] = key;
+    }
+
+    uint16_t median = temp[filt->count / 2];
+
+    uint32_t sum = 0;
+    for (uint8_t i = 0; i < filt->count; i++) {
+        sum += temp[i];
+    }
+    uint16_t avg = (uint16_t)((sum + (filt->count / 2)) / filt->count);
+
+    return (uint16_t)((median + avg) / 2);
 }
 
 static esp_err_t tof_read_once(tof_dual_reading_t *out)
@@ -201,9 +246,11 @@ esp_err_t tof_ctrl_read(tof_dual_reading_t *out)
 
     if (out->left_ok) {
         out->left_mm = tof_apply_calibration(0.963f, -28.1f, out->left_mm);
+        out->left_mm = tof_filter_apply(&s_left_filter, out->left_mm);
     }
     if (out->right_ok) {
         out->right_mm = tof_apply_calibration(0.997f, -27.3f, out->right_mm);
+        out->right_mm = tof_filter_apply(&s_right_filter, out->right_mm);
     }
 
     return ESP_OK;

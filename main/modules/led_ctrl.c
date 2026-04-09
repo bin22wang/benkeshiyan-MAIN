@@ -82,7 +82,7 @@ void led_ctrl_init(void)
 
     ESP_LOGI(TAG, "LED GPIO %d init OK (active LOW)", LED_GPIO_NUM);
 
-    xTaskCreate(led_blink_task, "led_blink_task", 2048, NULL, 2, NULL);
+    xTaskCreate(led_blink_task, "led_blink_task", 4096, NULL, 2, NULL);
 }
 
 void led_ctrl_set_mode(led_mode_t mode)

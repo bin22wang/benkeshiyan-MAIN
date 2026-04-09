@@ -291,11 +291,12 @@ static void disp_refresh_task(void *pvParameters)
                 hud_draw_text_region(225, 185, 90, 24, 24, str_buf, YELLOW);
             }
         } else {
-            const char *left_label = s_current_state.tof_left_ok ? "L: %4u mm" : "L: ---- mm";
-            const char *right_label = s_current_state.tof_right_ok ? "R: %4u mm" : "R: ---- mm";
+            const char *left_label = s_current_state.tof_left_ok ? "L: %.1f cm" : "L: ---- cm";
+            const char *right_label = s_current_state.tof_right_ok ? "R: %.1f cm" : "R: ---- cm";
 
             if (s_current_state.tof_left_ok) {
-                snprintf(str_buf, sizeof(str_buf), left_label, s_current_state.tof_left_mm);
+                float left_cm = (float)s_current_state.tof_left_mm / 10.0f;
+                snprintf(str_buf, sizeof(str_buf), left_label, left_cm);
             } else {
                 snprintf(str_buf, sizeof(str_buf), "%s", left_label);
             }
@@ -304,7 +305,8 @@ static void disp_refresh_task(void *pvParameters)
             }
 
             if (s_current_state.tof_right_ok) {
-                snprintf(str_buf, sizeof(str_buf), right_label, s_current_state.tof_right_mm);
+                float right_cm = (float)s_current_state.tof_right_mm / 10.0f;
+                snprintf(str_buf, sizeof(str_buf), right_label, right_cm);
             } else {
                 snprintf(str_buf, sizeof(str_buf), "%s", right_label);
             }
