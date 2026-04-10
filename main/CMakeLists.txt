@@ -5,6 +5,7 @@ idf_component_register(
         "modules/wifi_mgr.c"
         "modules/udp_comm.c"
         "modules/led_ctrl.c"
+        "modules/recon_mgr.c"
         "modules/formation_algo.c"
     "modules/proto_parser.c"
     "modules/vel_solver.c"

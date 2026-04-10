@@ -30,6 +30,7 @@
 #include "modules/udp_comm.h"
 #include "modules/led_ctrl.h"
 #include "modules/proto_parser.h"
+#include "modules/recon_mgr.h"
 #include "modules/uart.h"
 #include "modules/vel_solver.h"
 #include "disp_mgr.h"
@@ -125,6 +126,7 @@ static void on_udp_data_received(const char *data, size_t len,
 
     /* 将原始 UDP 负载交给协议解析器（解析结果通过 consume/get 接口取出） */
     proto_parse_message(data, len);
+    recon_mgr_handle_message(data, len);
 
     /* ------------------------------------------------------------------
      * 轮询解析结果并执行对应动作
@@ -442,6 +444,7 @@ void app_main(void)
     /* --- Protocol parser & vel solver init --- */
     proto_parser_init(own_car_id);
     vel_solver_init(); /* 清空解算器状态，必须在 proto_parser_init() 之后调用 */
+    recon_mgr_init(own_car_id);
 
 #if LCD_DIAG_SELF_TEST
     lcd_diag_self_test();
