@@ -30,6 +30,7 @@
 
 #include "proto_parser.h"
 #include "vel_solver.h"
+#include "recon_mgr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -104,6 +105,12 @@ static void strip_crlf(char *s)
 static uint32_t now_ms(void)
 {
     return (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+}
+
+static bool recon_filter_controls(void)
+{
+    recon_state_t state = recon_mgr_get_state();
+    return state != RECON_STATE_IDLE;
 }
 
 /* ========================================================================
@@ -407,6 +414,11 @@ static void parse_topology(const char *data)
  * ---------------------------------------------------------------------- */
 static void parse_move_cmd(const char *data)
 {
+    if (recon_filter_controls()) {
+        ESP_LOGW(TAG, "[MOVE] ignored during recon: %s", data);
+        return;
+    }
+
     char  target[PROTO_CAR_ID_LEN];
     float x, y, yaw;
 
@@ -452,6 +464,11 @@ static void parse_move_cmd(const char *data)
  * ---------------------------------------------------------------------- */
 static void parse_formation_cmd(const char *data)
 {
+    if (recon_filter_controls()) {
+        ESP_LOGW(TAG, "[FORMATION] ignored during recon: %s", data);
+        return;
+    }
+
     if (strlen(data) < 4) return;
     char sub = data[3]; /* '[F,' 后的第一个字符 */
 
@@ -718,6 +735,11 @@ static void parse_legacy_topology_toggle(const char *data)
  * ---------------------------------------------------------------------- */
 static void parse_manual_cmd(const char *data)
 {
+    if (recon_filter_controls()) {
+        ESP_LOGW(TAG, "[MANUAL] ignored during recon: %s", data);
+        return;
+    }
+
     char  target[PROTO_CAR_ID_LEN];
     float vx, vy, vz;
 

@@ -1,14 +1,71 @@
 #include "recon_mgr.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "esp_log.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 #include "udp_comm.h"
+#include "vel_solver.h"
+#include "proto_parser.h"
+#include "tof_ctrl.h"
 
 #define RECON_CAR_ID_LEN 10
 #define RECON_ORDER_LEN  4
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+typedef struct {
+    uint32_t task_interval_ms;
+    float prep_spacing_m;
+    float prep_pos_tol_m;
+    float prep_yaw_tol_deg;
+    float tof_deadband_mm;
+    float tof_align_limit_mm;
+    float tof_vy_k;
+    float tof_vy_max;
+    float tof_vx_max;
+    float tof_vx_min;
+    float tof_yaw_k;
+    float tof_vz_max;
+    float tof_dock_min_mm;
+    float tof_dock_max_mm;
+    uint32_t sep_wait_ms;
+    uint32_t sep_post_back_ms;
+    float sep_success_mm;
+    float sep_back_vx;
+    float sep_yaw_k;
+    float sep_vz_max;
+} recon_cfg_t;
+
+static const recon_cfg_t k_recon_cfg = {
+    .task_interval_ms = 50,
+    .prep_spacing_m = 0.50f,
+    .prep_pos_tol_m = 0.07f,
+    .prep_yaw_tol_deg = 2.0f,
+    .tof_deadband_mm = 5.0f,
+    .tof_align_limit_mm = 30.0f,
+    .tof_vy_k = 0.0025f,
+    .tof_vy_max = 0.12f,
+    .tof_vx_max = 0.06f,
+    .tof_vx_min = 0.02f,
+    .tof_yaw_k = 0.02f,
+    .tof_vz_max = 0.30f,
+    .tof_dock_min_mm = 20.0f,
+    .tof_dock_max_mm = 30.0f,
+    .sep_wait_ms = 3000,
+    .sep_post_back_ms = 3500,
+    .sep_success_mm = 40.0f,
+    .sep_back_vx = 0.05f,
+    .sep_yaw_k = 0.02f,
+    .sep_vz_max = 0.30f,
+};
 
 static const char *TAG = "recon_mgr";
 
@@ -16,6 +73,33 @@ static recon_state_t s_state = RECON_STATE_IDLE;
 static char s_own_id[RECON_CAR_ID_LEN] = "CAR1";
 static char s_order[RECON_ORDER_LEN][RECON_CAR_ID_LEN] = {{0}};
 static recon_pos_t s_last_pos = RECON_POS_UNKNOWN;
+static bool s_order_valid = false;
+static bool s_prep_reported = false;
+static bool s_step_active = false;
+static char s_front_id[RECON_CAR_ID_LEN] = {0};
+static char s_sep_front_id[RECON_CAR_ID_LEN] = {0};
+static TaskHandle_t s_task = NULL;
+static uint32_t s_last_prep_set_ms = 0;
+
+typedef enum {
+    SEP_ROLE_NONE = 0,
+    SEP_ROLE_FRONT,
+    SEP_ROLE_REAR,
+} sep_role_t;
+
+typedef enum {
+    SEP_PHASE_IDLE = 0,
+    SEP_PHASE_WAIT,
+    SEP_PHASE_BACK,
+    SEP_PHASE_POST,
+} sep_phase_t;
+
+static sep_role_t s_sep_role = SEP_ROLE_NONE;
+static sep_phase_t s_sep_phase = SEP_PHASE_IDLE;
+static uint32_t s_sep_start_ms = 0;
+static uint32_t s_sep_phase_ms = 0;
+static bool s_sep_reported = false;
+static bool s_sep_magnet_on = false;
 
 static bool recon_send(const char *msg)
 {
@@ -63,22 +147,51 @@ static recon_pos_t parse_pos(const char *pos)
     return RECON_POS_UNKNOWN;
 }
 
+static float clamp_float(float value, float low, float high)
+{
+    if (value < low) return low;
+    if (value > high) return high;
+    return value;
+}
+
+static float wrap_deg(float deg)
+{
+    while (deg > 180.0f) deg -= 360.0f;
+    while (deg < -180.0f) deg += 360.0f;
+    return deg;
+}
+
 static void set_state(recon_state_t next)
 {
     if (s_state != next) {
         ESP_LOGI(TAG, "state %s -> %s", recon_mgr_state_str(s_state), recon_mgr_state_str(next));
         s_state = next;
     }
+    if (next == RECON_STATE_PREPARING) {
+        s_prep_reported = false;
+    }
+    if (next != RECON_STATE_ASSEMBLING) {
+        s_step_active = false;
+    }
+    if (next != RECON_STATE_SEPARATING) {
+        s_sep_role = SEP_ROLE_NONE;
+        s_sep_phase = SEP_PHASE_IDLE;
+        s_sep_reported = false;
+        s_sep_start_ms = 0;
+        s_sep_phase_ms = 0;
+        s_sep_front_id[0] = '\0';
+        if (s_sep_magnet_on) {
+            s_sep_magnet_on = false;
+            ESP_LOGI(TAG, "magnet off");
+        }
+    }
 }
 
 static void handle_prep(void)
 {
     set_state(RECON_STATE_PREPARING);
-    ESP_LOGI(TAG, "PREP received: placeholder action complete");
-
-    char msg[32];
-    snprintf(msg, sizeof(msg), "[R,PREP_OK,%s]", s_own_id);
-    recon_send(msg);
+    s_last_prep_set_ms = 0;
+    ESP_LOGI(TAG, "PREP received: start alignment with UWB");
 }
 
 static void handle_order(const char *data)
@@ -98,6 +211,7 @@ static void handle_order(const char *data)
     strncpy(s_order[1], c2, RECON_CAR_ID_LEN - 1);
     strncpy(s_order[2], c3, RECON_CAR_ID_LEN - 1);
     strncpy(s_order[3], c4, RECON_CAR_ID_LEN - 1);
+    s_order_valid = true;
 
     ESP_LOGI(TAG, "ORDER set: %s %s %s %s", s_order[0], s_order[1], s_order[2], s_order[3]);
 }
@@ -113,8 +227,21 @@ static void handle_step(const char *data, bool is_separating)
         return;
     }
 
+    if (is_separating) {
+        bool is_front = is_front_of_target(target);
+        if (is_front) {
+            recon_update_magnet(true);
+        } else if (s_sep_magnet_on) {
+            recon_update_magnet(false);
+        }
+    }
+
     if (strcmp(target, s_own_id) != 0) {
-        ESP_LOGD(TAG, "STEP for %s (not us)", target);
+        if (is_separating) {
+            ESP_LOGD(TAG, "SEP_STEP for %s (not us)", target);
+        } else {
+            ESP_LOGD(TAG, "STEP for %s (not us)", target);
+        }
         return;
     }
 
@@ -123,24 +250,62 @@ static void handle_step(const char *data, bool is_separating)
 
     if (is_separating) {
         set_state(RECON_STATE_SEPARATING);
-        ESP_LOGI(TAG, "SEP_STEP for %s pos=%s: placeholder action complete", target, recon_mgr_pos_str(pos));
+        s_sep_role = SEP_ROLE_REAR;
+        s_sep_phase = SEP_PHASE_WAIT;
+        s_sep_start_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        s_sep_phase_ms = s_sep_start_ms;
+        s_sep_reported = false;
+        s_sep_front_id[0] = '\0';
 
-        char msg[48];
-        snprintf(msg, sizeof(msg), "[R,SEP_OK,%s,POS=%s]", s_own_id, recon_mgr_pos_str(pos));
-        recon_send(msg);
+        if (s_order_valid) {
+            int idx = find_order_index(s_own_id);
+            if (idx > 0) {
+                strncpy(s_sep_front_id, s_order[idx - 1], RECON_CAR_ID_LEN - 1);
+                s_sep_front_id[RECON_CAR_ID_LEN - 1] = '\0';
+            }
+        }
+
+        ESP_LOGI(TAG, "SEP_STEP for %s pos=%s: wait %ums then back, front=%s",
+                 target,
+                 recon_mgr_pos_str(pos),
+                 (unsigned int)k_recon_cfg.sep_wait_ms,
+                 s_sep_front_id[0] ? s_sep_front_id : "UNKNOWN");
     } else {
         set_state(RECON_STATE_ASSEMBLING);
-        ESP_LOGI(TAG, "STEP for %s pos=%s: placeholder action complete", target, recon_mgr_pos_str(pos));
+        s_step_active = true;
+        s_front_id[0] = '\0';
 
-        char msg[48];
-        snprintf(msg, sizeof(msg), "[R,STEP_OK,%s,POS=%s]", s_own_id, recon_mgr_pos_str(pos));
-        recon_send(msg);
+        if (pos == RECON_POS_HEAD) {
+            ESP_LOGI(TAG, "STEP for %s pos=%s: head no docking, OK", target, recon_mgr_pos_str(pos));
+            char msg[48];
+            snprintf(msg, sizeof(msg), "[R,STEP_OK,%s,POS=%s]", s_own_id, recon_mgr_pos_str(pos));
+            recon_send(msg);
+            set_state(RECON_STATE_ASSEMBLED);
+            s_step_active = false;
+            return;
+        }
+
+        if (s_order_valid) {
+            for (int i = 0; i < RECON_ORDER_LEN; i++) {
+                if (strcmp(s_order[i], s_own_id) == 0) {
+                    if (i > 0) {
+                        strncpy(s_front_id, s_order[i - 1], RECON_CAR_ID_LEN - 1);
+                        s_front_id[RECON_CAR_ID_LEN - 1] = '\0';
+                    }
+                    break;
+                }
+            }
+        }
+
+        ESP_LOGI(TAG, "STEP for %s pos=%s: start ToF docking, front=%s",
+                 target, recon_mgr_pos_str(pos), s_front_id[0] ? s_front_id : "UNKNOWN");
     }
 }
 
 static void handle_done(void)
 {
     set_state(RECON_STATE_ASSEMBLED);
+    vel_solver_stop();
 }
 
 static void handle_sep_begin(void)
@@ -151,12 +316,268 @@ static void handle_sep_begin(void)
 static void handle_sep_done(void)
 {
     set_state(RECON_STATE_IDLE);
+    vel_solver_stop();
 }
 
 static void handle_abort(void)
 {
     ESP_LOGW(TAG, "ABORT received: stop action, reset to IDLE");
     set_state(RECON_STATE_IDLE);
+    vel_solver_stop();
+}
+
+static int find_order_index(const char *car_id)
+{
+    if (!s_order_valid || !car_id) return -1;
+    for (int i = 0; i < RECON_ORDER_LEN; i++) {
+        if (strcmp(s_order[i], car_id) == 0) return i;
+    }
+    return -1;
+}
+
+static bool is_front_of_target(const char *target_id)
+{
+    if (!s_order_valid || !target_id) return false;
+    int target_idx = find_order_index(target_id);
+    if (target_idx <= 0) return false;
+    return strcmp(s_order[target_idx - 1], s_own_id) == 0;
+}
+
+static void recon_handle_preparing(void)
+{
+    if (!s_order_valid) {
+        return;
+    }
+
+    int idx = find_order_index(s_own_id);
+    if (idx < 0) return;
+
+    const vel_own_state_t *own = vel_solver_get_own_state();
+    if (!own->valid) return;
+
+    if (idx == 0) {
+        vel_solver_stop();
+        if (!s_prep_reported) {
+            char msg[32];
+            snprintf(msg, sizeof(msg), "[R,PREP_OK,%s]", s_own_id);
+            recon_send(msg);
+            s_prep_reported = true;
+            ESP_LOGI(TAG, "PREP OK (head)");
+        }
+        return;
+    }
+
+    const proto_car_state_t *head = proto_get_car_state(s_order[0]);
+    if (!head || !head->valid) {
+        return;
+    }
+
+    float head_yaw = head->yaw;
+    float yaw_rad = head_yaw * (float)M_PI / 180.0f;
+    float spacing = k_recon_cfg.prep_spacing_m * (float)idx;
+
+    float target_x = head->x - cosf(yaw_rad) * spacing;
+    float target_y = head->y - sinf(yaw_rad) * spacing;
+    float target_yaw = head_yaw;
+
+    uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    if (now - s_last_prep_set_ms >= 200) {
+        vel_solver_set_position_target(target_x, target_y, target_yaw);
+        s_last_prep_set_ms = now;
+    }
+
+    float dx = target_x - own->x;
+    float dy = target_y - own->y;
+    float dist = sqrtf(dx * dx + dy * dy);
+    float yaw_err = wrap_deg(target_yaw - own->yaw);
+
+    if (!s_prep_reported && dist <= k_recon_cfg.prep_pos_tol_m && fabsf(yaw_err) <= k_recon_cfg.prep_yaw_tol_deg) {
+        char msg[32];
+        snprintf(msg, sizeof(msg), "[R,PREP_OK,%s]", s_own_id);
+        recon_send(msg);
+        s_prep_reported = true;
+        ESP_LOGI(TAG, "PREP OK (idx=%d dist=%.3f yaw_err=%.1f)", idx, dist, yaw_err);
+    }
+}
+
+static bool recon_check_dock_success(const tof_dual_reading_t *tof)
+{
+    if (!tof || !tof->left_ok || !tof->right_ok) return false;
+    float dl = (float)tof->left_mm;
+    float dr = (float)tof->right_mm;
+    float delta = dl - dr;
+    float mean = 0.5f * (dl + dr);
+
+    return fabsf(delta) <= k_recon_cfg.tof_deadband_mm
+        && mean >= k_recon_cfg.tof_dock_min_mm
+        && mean <= k_recon_cfg.tof_dock_max_mm;
+}
+
+static void recon_update_magnet(bool enable)
+{
+    if (s_sep_magnet_on == enable) return;
+    s_sep_magnet_on = enable;
+    ESP_LOGI(TAG, "magnet %s", enable ? "on" : "off");
+}
+
+static void recon_handle_separating(void)
+{
+    if (s_sep_role == SEP_ROLE_FRONT) {
+        recon_update_magnet(true);
+        vel_solver_stop();
+        return;
+    }
+
+    if (s_sep_role != SEP_ROLE_REAR) {
+        return;
+    }
+
+    uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    if (s_sep_phase == SEP_PHASE_WAIT) {
+        if (now - s_sep_start_ms >= k_recon_cfg.sep_wait_ms) {
+            s_sep_phase = SEP_PHASE_BACK;
+            s_sep_phase_ms = now;
+        } else {
+            vel_solver_stop();
+            return;
+        }
+    }
+
+    float vx = -k_recon_cfg.sep_back_vx;
+    float vy = 0.0f;
+    float vz = 0.0f;
+
+    const vel_own_state_t *own = vel_solver_get_own_state();
+    if (own->valid && s_sep_front_id[0] != '\0') {
+        const proto_car_state_t *front = proto_get_car_state(s_sep_front_id);
+        if (front && front->valid) {
+            float yaw_err = wrap_deg(front->yaw - own->yaw);
+            vz = clamp_float(yaw_err * k_recon_cfg.sep_yaw_k,
+                             -k_recon_cfg.sep_vz_max,
+                             k_recon_cfg.sep_vz_max);
+        }
+    }
+
+    if (s_sep_phase == SEP_PHASE_BACK) {
+        tof_dual_reading_t tof = {0};
+        uint32_t age_ms = 0;
+        bool tof_ok = (tof_ctrl_get_latest(&tof, &age_ms) == ESP_OK) && age_ms < 200;
+        if (tof_ok && tof.left_ok && tof.right_ok) {
+            float mean = 0.5f * ((float)tof.left_mm + (float)tof.right_mm);
+            if (!s_sep_reported && mean >= k_recon_cfg.sep_success_mm) {
+                char msg[48];
+                snprintf(msg, sizeof(msg), "[R,SEP_OK,%s,POS=%s]", s_own_id, recon_mgr_pos_str(s_last_pos));
+                recon_send(msg);
+                s_sep_reported = true;
+                s_sep_phase = SEP_PHASE_POST;
+                s_sep_phase_ms = now;
+                ESP_LOGI(TAG, "separation success: mean=%.1fmm", mean);
+            }
+        }
+    }
+
+    if (s_sep_phase == SEP_PHASE_POST) {
+        if (now - s_sep_phase_ms >= k_recon_cfg.sep_post_back_ms) {
+            vel_solver_stop();
+            s_sep_phase = SEP_PHASE_IDLE;
+            return;
+        }
+    }
+
+    vel_solver_set_manual_speed(vx, vy, vz);
+}
+
+static void recon_handle_assembling(void)
+{
+    if (!s_step_active) return;
+
+    if (s_last_pos == RECON_POS_HEAD) {
+        return;
+    }
+
+    const vel_own_state_t *own = vel_solver_get_own_state();
+    if (!own->valid) {
+        return;
+    }
+
+    const proto_car_state_t *front = NULL;
+    if (s_front_id[0] != '\0') {
+        front = proto_get_car_state(s_front_id);
+    }
+
+    float target_yaw = own->yaw;
+    if (front && front->valid) {
+        target_yaw = front->yaw;
+    }
+
+    tof_dual_reading_t tof = {0};
+    uint32_t age_ms = 0;
+    bool tof_ok = (tof_ctrl_get_latest(&tof, &age_ms) == ESP_OK) && age_ms < 200;
+
+    float vx = 0.0f;
+    float vy = 0.0f;
+    float vz = 0.0f;
+
+    if (tof_ok && tof.left_ok && tof.right_ok) {
+        float dl = (float)tof.left_mm;
+        float dr = (float)tof.right_mm;
+        float delta = dl - dr;
+        float abs_delta = fabsf(delta);
+
+        if (abs_delta <= k_recon_cfg.tof_deadband_mm) {
+            delta = 0.0f;
+            abs_delta = 0.0f;
+        }
+
+        vy = clamp_float(delta * k_recon_cfg.tof_vy_k,
+                         -k_recon_cfg.tof_vy_max,
+                         k_recon_cfg.tof_vy_max);
+
+        float align_ratio = 1.0f - clamp_float(abs_delta / k_recon_cfg.tof_align_limit_mm, 0.0f, 1.0f);
+        vx = k_recon_cfg.tof_vx_min + (k_recon_cfg.tof_vx_max - k_recon_cfg.tof_vx_min) * align_ratio;
+
+        if (recon_check_dock_success(&tof)) {
+            char msg[48];
+            snprintf(msg, sizeof(msg), "[R,STEP_OK,%s,POS=%s]", s_own_id, recon_mgr_pos_str(s_last_pos));
+            recon_send(msg);
+            vel_solver_stop();
+            set_state(RECON_STATE_ASSEMBLED);
+            s_step_active = false;
+            ESP_LOGI(TAG, "dock success: dl=%u dr=%u", (unsigned int)tof.left_mm, (unsigned int)tof.right_mm);
+            return;
+        }
+    } else {
+        vx = 0.0f;
+        vy = 0.0f;
+    }
+
+    float yaw_err = wrap_deg(target_yaw - own->yaw);
+    vz = clamp_float(yaw_err * k_recon_cfg.tof_yaw_k,
+                     -k_recon_cfg.tof_vz_max,
+                     k_recon_cfg.tof_vz_max);
+
+    vel_solver_set_manual_speed(vx, vy, vz);
+}
+
+static void recon_mgr_task(void *pvParameters)
+{
+    (void)pvParameters;
+    while (1) {
+        switch (s_state) {
+            case RECON_STATE_PREPARING:
+                recon_handle_preparing();
+                break;
+            case RECON_STATE_ASSEMBLING:
+                recon_handle_assembling();
+                break;
+            case RECON_STATE_SEPARATING:
+                recon_handle_separating();
+                break;
+            default:
+                break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(k_recon_cfg.task_interval_ms));
+    }
 }
 
 void recon_mgr_init(const char *own_car_id)
@@ -167,8 +588,22 @@ void recon_mgr_init(const char *own_car_id)
     }
     set_state(RECON_STATE_IDLE);
     memset(s_order, 0, sizeof(s_order));
+    s_order_valid = false;
+    s_prep_reported = false;
+    s_step_active = false;
+    s_front_id[0] = '\0';
+    s_sep_front_id[0] = '\0';
+    s_sep_role = SEP_ROLE_NONE;
+    s_sep_phase = SEP_PHASE_IDLE;
+    s_sep_start_ms = 0;
+    s_sep_phase_ms = 0;
+    s_sep_reported = false;
+    s_sep_magnet_on = false;
+    s_last_prep_set_ms = 0;
     s_last_pos = RECON_POS_UNKNOWN;
     ESP_LOGI(TAG, "init OK, own_id=%s", s_own_id);
+
+    recon_mgr_start();
 }
 
 recon_state_t recon_mgr_get_state(void)
@@ -215,4 +650,10 @@ void recon_mgr_handle_message(const char *data, size_t len)
     }
 
     ESP_LOGW(TAG, "unknown R cmd: %.*s", (int)(len > 60 ? 60 : len), data);
+}
+
+void recon_mgr_start(void)
+{
+    if (s_task != NULL) return;
+    xTaskCreate(recon_mgr_task, "recon_task", 4096, NULL, 4, &s_task);
 }

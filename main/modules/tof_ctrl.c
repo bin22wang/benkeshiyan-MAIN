@@ -29,6 +29,10 @@ static VL53L0X_Dev_t s_left_dev = {0};
 static VL53L0X_Dev_t s_right_dev = {0};
 static bool s_inited = false;
 
+static tof_dual_reading_t s_last_reading = {0};
+static bool s_last_valid = false;
+static uint32_t s_last_update_ms = 0;
+
 #define TOF_FILTER_WINDOW 5
 
 typedef struct {
@@ -253,10 +257,33 @@ esp_err_t tof_ctrl_read(tof_dual_reading_t *out)
         out->right_mm = tof_filter_apply(&s_right_filter, out->right_mm);
     }
 
+    s_last_reading = *out;
+    s_last_valid = true;
+    s_last_update_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+
     return ESP_OK;
 }
 
 esp_err_t tof_ctrl_read_raw(tof_dual_reading_t *out)
 {
-    return tof_read_once(out);
+    esp_err_t ret = tof_read_once(out);
+    if (ret == ESP_OK && out) {
+        s_last_reading = *out;
+        s_last_valid = true;
+        s_last_update_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    }
+    return ret;
+}
+
+esp_err_t tof_ctrl_get_latest(tof_dual_reading_t *out, uint32_t *age_ms)
+{
+    if (!out || !s_last_valid) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    *out = s_last_reading;
+    if (age_ms) {
+        uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+        *age_ms = now - s_last_update_ms;
+    }
+    return ESP_OK;
 }

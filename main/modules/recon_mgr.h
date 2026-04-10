@@ -34,6 +34,9 @@ const char *recon_mgr_pos_str(recon_pos_t pos);
 
 void recon_mgr_handle_message(const char *data, size_t len);
 
+// Optional: start background control task (auto-started in recon_mgr_init).
+void recon_mgr_start(void);
+
 #ifdef __cplusplus
 }
 #endif
