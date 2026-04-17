@@ -44,6 +44,11 @@ typedef struct {
 static tof_filter_t s_left_filter = {0};
 static tof_filter_t s_right_filter = {0};
 
+static float s_left_scale = 1.0f;
+static float s_left_bias = 0.0f;
+static float s_right_scale = 1.0f;
+static float s_right_bias = 0.0f;
+
 static uint16_t tof_apply_calibration(float scale, float bias, uint16_t raw_mm)
 {
     float calibrated = scale * (float)raw_mm + bias;
@@ -110,25 +115,6 @@ static esp_err_t tof_read_once(tof_dual_reading_t *out)
     return (left_status == VL53L0X_ERROR_NONE || right_status == VL53L0X_ERROR_NONE)
                ? ESP_OK
                : ESP_FAIL;
-}
-
-static esp_err_t tof_i2c_init(void)
-{
-    i2c_config_t conf = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = TOF_I2C_SDA_GPIO,
-        .scl_io_num = TOF_I2C_SCL_GPIO,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = TOF_I2C_SPEED_HZ,
-    };
-
-    ESP_ERROR_CHECK(i2c_param_config(TOF_I2C_PORT, &conf));
-    esp_err_t ret = i2c_driver_install(TOF_I2C_PORT, conf.mode, 0, 0, 0);
-    if (ret == ESP_ERR_INVALID_STATE) {
-        return ESP_OK;
-    }
-    return ret;
 }
 
 static void tof_xshut_init(void)
@@ -206,13 +192,11 @@ static esp_err_t tof_init_one(VL53L0X_Dev_t *dev, uint8_t new_addr)
 
 esp_err_t tof_ctrl_init(void)
 {
-    esp_err_t ret = tof_i2c_init();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "i2c init failed: %d", (int)ret);
-        return ret;
-    }
+    esp_err_t ret;
 
     tof_xshut_init();
+    gpio_set_level(TOF_XSHUT_LEFT_GPIO, 0);
+    gpio_set_level(TOF_XSHUT_RIGHT_GPIO, 0);
     vTaskDelay(pdMS_TO_TICKS(20));
 
     s_left_dev.i2c_port_num = TOF_I2C_PORT;
@@ -221,7 +205,7 @@ esp_err_t tof_ctrl_init(void)
     s_right_dev.i2c_address = TOF_ADDR_DEFAULT;
 
     gpio_set_level(TOF_XSHUT_LEFT_GPIO, 1);
-    vTaskDelay(pdMS_TO_TICKS(50));
+    vTaskDelay(pdMS_TO_TICKS(20));
 
     ret = tof_init_one(&s_left_dev, TOF_ADDR_LEFT);
     if (ret != ESP_OK) {
@@ -229,7 +213,7 @@ esp_err_t tof_ctrl_init(void)
     }
 
     gpio_set_level(TOF_XSHUT_RIGHT_GPIO, 1);
-    vTaskDelay(pdMS_TO_TICKS(50));
+    vTaskDelay(pdMS_TO_TICKS(20));
 
     ret = tof_init_one(&s_right_dev, TOF_ADDR_RIGHT);
     if (ret != ESP_OK) {
@@ -249,11 +233,11 @@ esp_err_t tof_ctrl_read(tof_dual_reading_t *out)
     }
 
     if (out->left_ok) {
-        out->left_mm = tof_apply_calibration(0.963f, -28.1f, out->left_mm);
+        out->left_mm = tof_apply_calibration(s_left_scale, s_left_bias, out->left_mm);
         out->left_mm = tof_filter_apply(&s_left_filter, out->left_mm);
     }
     if (out->right_ok) {
-        out->right_mm = tof_apply_calibration(0.997f, -27.3f, out->right_mm);
+        out->right_mm = tof_apply_calibration(s_right_scale, s_right_bias, out->right_mm);
         out->right_mm = tof_filter_apply(&s_right_filter, out->right_mm);
     }
 
@@ -286,4 +270,30 @@ esp_err_t tof_ctrl_get_latest(tof_dual_reading_t *out, uint32_t *age_ms)
         *age_ms = now - s_last_update_ms;
     }
     return ESP_OK;
+}
+
+void tof_ctrl_set_calibration(float left_scale, float left_bias,
+                              float right_scale, float right_bias)
+{
+    s_left_scale = left_scale;
+    s_left_bias = left_bias;
+    s_right_scale = right_scale;
+    s_right_bias = right_bias;
+}
+
+void tof_ctrl_get_calibration(float *left_scale, float *left_bias,
+                              float *right_scale, float *right_bias)
+{
+    if (left_scale) {
+        *left_scale = s_left_scale;
+    }
+    if (left_bias) {
+        *left_bias = s_left_bias;
+    }
+    if (right_scale) {
+        *right_scale = s_right_scale;
+    }
+    if (right_bias) {
+        *right_bias = s_right_bias;
+    }
 }

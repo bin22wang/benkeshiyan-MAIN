@@ -2,6 +2,7 @@
 idf_component_register(
     SRCS
         "app_main.c"
+        "bsp_i2c.c"
         "modules/wifi_mgr.c"
         "modules/udp_comm.c"
         "modules/led_ctrl.c"
@@ -11,6 +12,8 @@ idf_component_register(
     "modules/vel_solver.c"
     "modules/uart.c"
         "modules/tof_ctrl.c"
+    "modules/calib_mgr.c"
+    "modules/calib_store.c"
     INCLUDE_DIRS
         "."          # 使 app_main.c 能用 #include "modules/xxx.h"
         "modules"    # 使模块内部互相 #include "xxx.h" 无需路径前缀
@@ -23,4 +26,5 @@ idf_component_register(
         driver
         disp_mgr
         esp32-vl53l0x-master
+        AT24C02
 )

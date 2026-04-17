@@ -33,9 +33,11 @@
 #include "modules/recon_mgr.h"
 #include "modules/uart.h"
 #include "modules/vel_solver.h"
+#include "bsp_i2c.h"
 #include "disp_mgr.h"
 #include "xl9555.h"
 #include "modules/tof_ctrl.h"
+#include "modules/calib_mgr.h"
 
 /* ========== 模块日志标签 ========== */
 static const char *TAG = "app_main";
@@ -354,7 +356,10 @@ static void boot_key_task(void *pvParameters)
             vTaskDelay(pdMS_TO_TICKS(BOOT_KEY_DEBOUNCE_MS));
             level = gpio_get_level(BOOT_KEY_GPIO);
             if (level == BOOT_KEY_ACTIVE_LEVEL) {
-                disp_mgr_next_page();
+                if (!(calib_mgr_is_active() && disp_mgr_get_page() == DISP_PAGE_CALIB)) {
+                    disp_mgr_next_page();
+                    calib_mgr_set_active(disp_mgr_get_page() == DISP_PAGE_CALIB);
+                }
                 while (gpio_get_level(BOOT_KEY_GPIO) == BOOT_KEY_ACTIVE_LEVEL) {
                     vTaskDelay(pdMS_TO_TICKS(10));
                 }
@@ -418,6 +423,13 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "============ System Starting ============");
 
+    if (bsp_i2c_master_init() != ESP_OK) {
+        ESP_LOGW(TAG, "I2C init failed");
+    }
+    if (bsp_i2c_aux_init() != ESP_OK) {
+        ESP_LOGW(TAG, "I2C1 init failed");
+    }
+
     /* Reduce log spam so LCD diag logs are visible */
     esp_log_level_set("vel_solver", ESP_LOG_ERROR);
 
@@ -457,6 +469,9 @@ void app_main(void)
     } else {
         ESP_LOGW(TAG, "ToF init failed, skip ranging task");
     }
+
+    calib_mgr_init();
+    calib_mgr_start();
 
     xTaskCreate(boot_key_task, "boot_key_task", 4096, NULL, 3, NULL);
 

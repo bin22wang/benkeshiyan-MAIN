@@ -29,6 +29,14 @@ esp_err_t tof_ctrl_read_raw(tof_dual_reading_t *out);
 // Returns ESP_OK only if a valid reading has been recorded.
 esp_err_t tof_ctrl_get_latest(tof_dual_reading_t *out, uint32_t *age_ms);
 
+// Update calibration parameters (scale/bias) for both sensors.
+void tof_ctrl_set_calibration(float left_scale, float left_bias,
+                              float right_scale, float right_bias);
+
+// Read current calibration parameters.
+void tof_ctrl_get_calibration(float *left_scale, float *left_bias,
+                              float *right_scale, float *right_bias);
+
 #ifdef __cplusplus
 }
 #endif

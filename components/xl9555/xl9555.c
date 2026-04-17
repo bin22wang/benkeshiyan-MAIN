@@ -17,28 +17,8 @@ static esp_err_t xl9555_ensure_bus(void)
         return ESP_OK;
     }
 
-    i2c_config_t conf = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = XL9555_I2C_SDA_GPIO,
-        .scl_io_num = XL9555_I2C_SCL_GPIO,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = XL9555_I2C_SPEED_HZ,
-    };
-
-    esp_err_t ret = i2c_param_config(XL9555_I2C_PORT, &conf);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    ret = i2c_driver_install(XL9555_I2C_PORT, conf.mode, 0, 0, 0);
-    if (ret == ESP_ERR_INVALID_STATE) {
-        ret = ESP_OK;
-    }
-    if (ret == ESP_OK) {
-        s_i2c_inited = true;
-    }
-    return ret;
+    s_i2c_inited = true;
+    return ESP_OK;
 }
 
 static esp_err_t xl9555_ensure_device(void)

@@ -69,6 +69,10 @@ static const recon_cfg_t k_recon_cfg = {
 
 static const char *TAG = "recon_mgr";
 
+static bool is_front_of_target(const char *target_id);
+static void recon_update_magnet(bool enable);
+static int find_order_index(const char *car_id);
+
 static recon_state_t s_state = RECON_STATE_IDLE;
 static char s_own_id[RECON_CAR_ID_LEN] = "CAR1";
 static char s_order[RECON_ORDER_LEN][RECON_CAR_ID_LEN] = {{0}};
