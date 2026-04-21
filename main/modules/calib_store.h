@@ -15,7 +15,7 @@ typedef struct {
     float left_bias;
     float right_scale;
     float right_bias;
-} calib_params_t;
+} calib_params_t;                                                                                 
 
 esp_err_t calib_store_init(void);
 

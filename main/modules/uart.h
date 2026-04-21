@@ -20,8 +20,8 @@ extern "C" {
  * 如需改为其他 UART 口或引脚，仅需修改以下宏即可（并确保硬件连线一致）。
  */
 #define USART_UX            UART_NUM_2
-#define USART_TX_GPIO_PIN   GPIO_NUM_38
-#define USART_RX_GPIO_PIN   GPIO_NUM_39
+#define USART_TX_GPIO_PIN   GPIO_NUM_46
+#define USART_RX_GPIO_PIN   GPIO_NUM_3
 
 /* 串口接收相关定义 */
 /*
