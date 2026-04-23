@@ -20,7 +20,8 @@ typedef enum {
 } sys_mode_t;
 
 typedef enum {
-    DISP_PAGE_STATUS = 0
+    DISP_PAGE_STATUS = 0,
+    DISP_PAGE_CAMERA
 } disp_page_t;
 
 void disp_mgr_init(void);

@@ -5,6 +5,8 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
+#include "esp_heap_caps.h"
 #include "driver/spi_master.h"
 #include "esp_err.h"
 
@@ -33,6 +35,28 @@ uint8_t lcd_buf[LCD_TOTAL_BUF_SIZE];
 
 static spi_device_handle_t s_lcd_handle = NULL;
 static uint16_t s_bg_color = BLACK;
+static SemaphoreHandle_t s_lcd_mutex = NULL;
+
+static void lcd_mutex_init(void)
+{
+    if (s_lcd_mutex == NULL) {
+        s_lcd_mutex = xSemaphoreCreateRecursiveMutex();
+    }
+}
+
+static void lcd_lock(void)
+{
+    if (s_lcd_mutex != NULL) {
+        xSemaphoreTakeRecursive(s_lcd_mutex, portMAX_DELAY);
+    }
+}
+
+static void lcd_unlock(void)
+{
+    if (s_lcd_mutex != NULL) {
+        xSemaphoreGiveRecursive(s_lcd_mutex);
+    }
+}
 
 
 static const uint8_t k_font_digits[10][LCD_FONT_BASE_H] = {
@@ -128,10 +152,12 @@ void lcd_write_cmd(uint8_t cmd)
         return;
     }
 
+    lcd_lock();
     LCD_CS(0);
     LCD_WR(0);
     spi2_write_cmd(s_lcd_handle, cmd);
     LCD_CS(1);
+    lcd_unlock();
 }
 
 void lcd_write_data(const uint8_t *data, int len)
@@ -140,10 +166,12 @@ void lcd_write_data(const uint8_t *data, int len)
         return;
     }
 
+    lcd_lock();
     LCD_CS(0);
     LCD_WR(1);
     spi2_write_data(s_lcd_handle, data, len);
     LCD_CS(1);
+    lcd_unlock();
 }
 
 void lcd_write_data16(uint16_t data)
@@ -233,6 +261,7 @@ static void lcd_draw_bitmap(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1,
 
 void lcd_set_dir(uint8_t dir)
 {
+    lcd_lock();
     lcd_self.dir = dir ? 1 : 0;
     if (lcd_self.dir) {
         lcd_self.width = LCD_WIDTH;
@@ -245,10 +274,13 @@ void lcd_set_dir(uint8_t dir)
     uint8_t madctl = lcd_self.dir ? 0x60 : 0x00;
     lcd_write_cmd(0x36);
     lcd_write_data(&madctl, 1);
+    lcd_unlock();
 }
 
 void lcd_init(void)
 {
+    lcd_mutex_init();
+    lcd_lock();
     ESP_ERROR_CHECK(spi2_init());
     lcd_gpio_init();
 
@@ -353,12 +385,15 @@ void lcd_init(void)
     vTaskDelay(pdMS_TO_TICKS(20));
 
     lcd_clear(BLACK);
+    lcd_unlock();
 }
 
 void lcd_clear(uint16_t color)
 {
+    lcd_lock();
     s_bg_color = color;
     lcd_fill_rect(0, 0, (uint16_t)(lcd_self.width - 1), (uint16_t)(lcd_self.height - 1), color);
+    lcd_unlock();
 }
 
 void lcd_fill_rect(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color)
@@ -378,12 +413,14 @@ void lcd_fill_rect(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t 
         y1 = (uint16_t)(lcd_self.height - 1);
     }
 
+    lcd_lock();
     lcd_set_window(x0, y0, x1, y1);
 
     LCD_CS(0);
     LCD_WR(1);
     lcd_write_color_repeat(color, (size_t)(x1 - x0 + 1) * (size_t)(y1 - y0 + 1));
     LCD_CS(1);
+    lcd_unlock();
 }
 
 void lcd_draw_point(uint16_t x, uint16_t y, uint16_t color)
@@ -392,15 +429,18 @@ void lcd_draw_point(uint16_t x, uint16_t y, uint16_t color)
         return;
     }
 
+    lcd_lock();
     lcd_set_window(x, y, x, y);
     LCD_CS(0);
     LCD_WR(1);
     lcd_write_color_repeat(color, 1);
     LCD_CS(1);
+    lcd_unlock();
 }
 
 void lcd_show_char(uint16_t x, uint16_t y, char chr, uint8_t size, uint8_t mode, uint16_t color)
 {
+    lcd_lock();
     uint16_t scale = LCD_FONT_SCALE(size);
     uint16_t char_w = LCD_CHAR_W(size);
     uint16_t char_h = LCD_CHAR_H(size);
@@ -445,6 +485,7 @@ void lcd_show_char(uint16_t x, uint16_t y, char chr, uint8_t size, uint8_t mode,
 
     lcd_draw_bitmap(x, y, (uint16_t)(x + char_w - 1), (uint16_t)(y + char_h - 1), buf);
     free(buf);
+    lcd_unlock();
 }
 
 void lcd_show_string(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
@@ -454,6 +495,7 @@ void lcd_show_string(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
         return;
     }
 
+    lcd_lock();
     uint16_t x0 = x;
     uint16_t char_w = LCD_CHAR_W(size);
     uint16_t char_h = LCD_CHAR_H(size);
@@ -473,4 +515,51 @@ void lcd_show_string(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
         x = (uint16_t)(x + char_w);
         ++p;
     }
+    lcd_unlock();
+}
+
+void lcd_draw_rgb565(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
+                     const uint8_t *buf, size_t buf_len)
+{
+    if (!buf || width == 0 || height == 0) {
+        return;
+    }
+
+    if (x >= lcd_self.width || y >= lcd_self.height) {
+        return;
+    }
+
+    if ((uint32_t)x + width > lcd_self.width) {
+        width = (uint16_t)(lcd_self.width - x);
+    }
+    if ((uint32_t)y + height > lcd_self.height) {
+        height = (uint16_t)(lcd_self.height - y);
+    }
+
+    size_t row_bytes = (size_t)width * 2U;
+    size_t expected = row_bytes * (size_t)height;
+    if (buf_len > 0 && buf_len < expected) {
+        return;
+    }
+
+    uint8_t *dma_line = (uint8_t *)heap_caps_malloc(row_bytes, MALLOC_CAP_DMA);
+    if (!dma_line) {
+        return;
+    }
+
+    lcd_lock();
+    lcd_set_window(x, y, (uint16_t)(x + width - 1), (uint16_t)(y + height - 1));
+
+    LCD_CS(0);
+    LCD_WR(1);
+
+    for (uint16_t row = 0; row < height; ++row) {
+        const uint8_t *src = buf + ((size_t)row * row_bytes);
+        memcpy(dma_line, src, row_bytes);
+        spi2_write_data(s_lcd_handle, dma_line, (int)row_bytes);
+    }
+
+    LCD_CS(1);
+    heap_caps_free(dma_line);
+    lcd_unlock();
 }

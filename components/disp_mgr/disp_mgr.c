@@ -302,6 +302,9 @@ void disp_mgr_set_page(disp_page_t page)
 {
     if (page != s_current_page) {
         s_current_page = page;
+        if (s_current_page == DISP_PAGE_CAMERA) {
+            lcd_clear(BLACK);
+        }
         s_page_dirty = true;
     }
 }
@@ -313,5 +316,9 @@ disp_page_t disp_mgr_get_page(void)
 
 void disp_mgr_next_page(void)
 {
-    disp_mgr_set_page(DISP_PAGE_STATUS);
+    if (s_current_page == DISP_PAGE_STATUS) {
+        disp_mgr_set_page(DISP_PAGE_CAMERA);
+    } else {
+        disp_mgr_set_page(DISP_PAGE_STATUS);
+    }
 }

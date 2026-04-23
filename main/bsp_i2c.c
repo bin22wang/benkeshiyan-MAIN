@@ -3,8 +3,8 @@
 #include "driver/i2c.h"
 
 #define BSP_I2C_PORT I2C_NUM_0
-#define BSP_I2C_SDA_GPIO GPIO_NUM_5
-#define BSP_I2C_SCL_GPIO GPIO_NUM_4
+#define BSP_I2C_SDA_GPIO GPIO_NUM_39
+#define BSP_I2C_SCL_GPIO GPIO_NUM_38
 #define BSP_I2C_SPEED_HZ 400000
 
 #define BSP_I2C1_PORT I2C_NUM_1

@@ -21,6 +21,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "esp_log.h"
 
 /* ========== 模块日志标签 ========== */
@@ -36,6 +37,9 @@ static int s_sock = -1;
 
 /** 服务器地址结构体（发送目标） */
 static struct sockaddr_in s_dest_addr;
+
+/** 发送串行化锁，避免多个任务同时发送同一个 socket。 */
+static SemaphoreHandle_t s_send_mutex = NULL;
 
 /** 上层注册的接收回调函数 */
 static udp_rx_callback_t s_rx_callback = NULL;
@@ -156,6 +160,16 @@ bool udp_comm_init(const char *server_ip, uint16_t server_port,
         return false;
     }
 
+    if (s_send_mutex == NULL) {
+        s_send_mutex = xSemaphoreCreateMutex();
+        if (s_send_mutex == NULL) {
+            ESP_LOGE(TAG, "send mutex create failed");
+            close(s_sock);
+            s_sock = -1;
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -171,11 +185,22 @@ bool udp_comm_send(const char *data, size_t len)
         return false;
     }
 
+    if (s_send_mutex == NULL || xSemaphoreTake(s_send_mutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+        ESP_LOGW(TAG, "send busy, drop packet");
+        return false;
+    }
+
     /* sendto(): 直接指定目的地址（s_dest_addr），无需 connect() */
     int err = sendto(s_sock, data, len, 0,
                      (struct sockaddr *)&s_dest_addr, sizeof(s_dest_addr));
+    xSemaphoreGive(s_send_mutex);
+
     if (err < 0) {
-        ESP_LOGE(TAG, "sendto failed: errno=%d", errno);
+        if (errno == ENOMEM || errno == ENOBUFS) {
+            ESP_LOGW(TAG, "sendto failed: errno=%d", errno);
+        } else {
+            ESP_LOGE(TAG, "sendto failed: errno=%d", errno);
+        }
         return false;
     }
 

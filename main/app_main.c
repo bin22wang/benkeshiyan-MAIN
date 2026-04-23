@@ -33,6 +33,7 @@
 #include "modules/recon_mgr.h"
 #include "modules/uart.h"
 #include "modules/vel_solver.h"
+#include "modules/camera_ui.h"
 #include "bsp_i2c.h"
 #include "disp_mgr.h"
 #include "xl9555.h"
@@ -201,11 +202,13 @@ static void state_report_task(void *pvParameters)
 {
     const char *own_car_id = (const char *)pvParameters;
     char msg[96];
+    uint32_t fail_backoff_ms = STATE_REPORT_INTERVAL_MS;
 
     ESP_LOGI(TAG, "State report task running, interval=%d ms, car_id=%s",
              STATE_REPORT_INTERVAL_MS, own_car_id);
 
     while (1) {
+        bool send_ok = false;
         const vel_own_state_t *st = vel_solver_get_own_state();
         if (st->valid) {
             /* 格式与 STM32 端 ESP8266_SendStatus_UDP_Reliable 保持一致：
@@ -216,11 +219,19 @@ static void state_report_task(void *pvParameters)
                                own_car_id,
                                st->x, st->y, st->yaw,
                                st->vx, st->vy, st->vz);
-            if (!udp_comm_send(msg, (size_t)len)) {
+            send_ok = udp_comm_send(msg, (size_t)len);
+            if (!send_ok) {
                 ESP_LOGW(TAG, "State report send failed");
             }
         }
-        vTaskDelay(pdMS_TO_TICKS(STATE_REPORT_INTERVAL_MS));
+
+        if (send_ok) {
+            fail_backoff_ms = STATE_REPORT_INTERVAL_MS;
+        } else {
+            fail_backoff_ms = (fail_backoff_ms < 1000U) ? (fail_backoff_ms * 2U) : 1000U;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(fail_backoff_ms));
     }
 
     vTaskDelete(NULL);
@@ -354,6 +365,7 @@ static void boot_key_task(void *pvParameters)
                 while (gpio_get_level(BOOT_KEY_GPIO) == BOOT_KEY_ACTIVE_LEVEL) {
                     vTaskDelay(pdMS_TO_TICKS(10));
                 }
+                disp_mgr_next_page();
             }
         }
         last_level = level;
@@ -438,6 +450,10 @@ void app_main(void)
 #endif
     disp_mgr_init();
     xTaskCreate(display_task, "display_task", 4096, (void *)own_car_id, 3, NULL);
+
+    if (!camera_ui_init()) {
+        ESP_LOGW(TAG, "Camera UI init failed");
+    }
 
     xTaskCreate(boot_key_task, "boot_key_task", 4096, NULL, 3, NULL);
 

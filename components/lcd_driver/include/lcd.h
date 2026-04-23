@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stddef.h>
 
 #include "driver/gpio.h"
 #include "xl9555.h"
@@ -62,3 +63,5 @@ void lcd_draw_point(uint16_t x, uint16_t y, uint16_t color);
 void lcd_show_char(uint16_t x, uint16_t y, char chr, uint8_t size, uint8_t mode, uint16_t color);
 void lcd_show_string(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
                      uint8_t size, char *p, uint16_t color);
+void lcd_draw_rgb565(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
+                     const uint8_t *buf, size_t buf_len);
