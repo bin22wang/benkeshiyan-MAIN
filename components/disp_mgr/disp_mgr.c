@@ -27,10 +27,6 @@ typedef struct {
     float x;
     float y;
     float yaw;
-    uint16_t tof_left_mm;
-    uint16_t tof_right_mm;
-    bool tof_left_ok;
-    bool tof_right_ok;
     uint32_t last_rx_ms;
 } disp_state_t;
 
@@ -47,15 +43,6 @@ static char s_last_y[16] = {0};
 static char s_last_yaw[16] = {0};
 static uint16_t s_last_wlan_color = 0;
 
-static char s_last_tof_left[20] = {0};
-static char s_last_tof_right[20] = {0};
-static char s_last_calib_tof_left[20] = {0};
-static char s_last_calib_tof_right[20] = {0};
-
-static disp_calib_state_t s_calib_state = {0};
-static disp_calib_state_t s_last_calib_state = {0};
-static bool s_calib_dirty = true;
-static bool s_calib_tof_dirty = true;
 
 static void hud_draw_point(uint16_t x, uint16_t y, uint16_t color)
 {
@@ -121,108 +108,6 @@ static void hud_reset_cache(void)
     s_last_y[0] = '\0';
     s_last_yaw[0] = '\0';
     s_last_wlan_color = 0;
-    s_last_tof_left[0] = '\0';
-    s_last_tof_right[0] = '\0';
-}
-
-static void draw_calib_ui_framework(void)
-{
-    const uint16_t max_x = (uint16_t)(LCD_WIDTH - 1);
-    lcd_clear(BLACK);
-
-    hud_draw_line(0, 30, max_x, 30, GRAY);
-    hud_draw_line(0, 31, max_x, 31, DARKBLUE);
-    hud_fill(0, 0, 6, 30, CYAN);
-
-    lcd_show_string(12, 6, 200, 20, 20, "CALIB", WHITE);
-
-    lcd_show_string(10, 205, 200, 16, 16, "", GRAY);
-}
-
-static void draw_calib_boxes(void)
-{
-    const uint16_t box_w = 80;
-    const uint16_t box_h = 40;
-    const uint16_t box_y = 60;
-    const uint16_t exit_w = 80;
-    const uint16_t exit_h = 30;
-    const uint16_t exit_x = 120;
-    const uint16_t exit_y = 170;
-
-    const char *labels[3] = {"8cm", "30cm", "70cm"};
-
-    for (uint8_t i = 0; i < 3; i++) {
-        uint16_t x = (uint16_t)(20 + i * 100);
-        bool focused = (s_calib_state.focus == i);
-        bool done = (s_calib_state.done_mask & (1U << i)) != 0;
-        uint16_t border_color = focused ? YELLOW : (done ? UI_GREEN : GRAY);
-        hud_fill(x, box_y, (uint16_t)(x + box_w), (uint16_t)(box_y + box_h), BLACK);
-        hud_draw_line(x, box_y, (uint16_t)(x + box_w), box_y, border_color);
-        hud_draw_line(x, (uint16_t)(box_y + box_h), (uint16_t)(x + box_w), (uint16_t)(box_y + box_h), border_color);
-        hud_draw_line(x, box_y, x, (uint16_t)(box_y + box_h), border_color);
-        hud_draw_line((uint16_t)(x + box_w), box_y, (uint16_t)(x + box_w), (uint16_t)(box_y + box_h), border_color);
-
-        uint16_t text_color = focused ? WHITE : (done ? UI_GREEN : GRAY);
-        lcd_show_string((uint16_t)(x + 18), (uint16_t)(box_y + 12), 60, 20, 16, (char *)labels[i], text_color);
-    }
-
-    bool exit_focus = (s_calib_state.focus == 3);
-    uint16_t exit_border = exit_focus ? YELLOW : GRAY;
-    hud_fill(exit_x, exit_y, (uint16_t)(exit_x + exit_w), (uint16_t)(exit_y + exit_h), BLACK);
-    hud_draw_line(exit_x, exit_y, (uint16_t)(exit_x + exit_w), exit_y, exit_border);
-    hud_draw_line(exit_x, (uint16_t)(exit_y + exit_h), (uint16_t)(exit_x + exit_w), (uint16_t)(exit_y + exit_h), exit_border);
-    hud_draw_line(exit_x, exit_y, exit_x, (uint16_t)(exit_y + exit_h), exit_border);
-    hud_draw_line((uint16_t)(exit_x + exit_w), exit_y, (uint16_t)(exit_x + exit_w), (uint16_t)(exit_y + exit_h), exit_border);
-    lcd_show_string((uint16_t)(exit_x + 18), (uint16_t)(exit_y + 8), 60, 20, 16, "EXIT",
-                    exit_focus ? WHITE : GRAY);
-}
-
-static void draw_calib_params(void)
-{
-    char buf[32];
-    snprintf(buf, sizeof(buf), "L k=%.3f", s_calib_state.left_scale);
-    hud_draw_text_region(10, 110, 140, 16, 16, buf, WHITE);
-    snprintf(buf, sizeof(buf), "L b=%.1f", s_calib_state.left_bias);
-    hud_draw_text_region(10, 130, 140, 16, 16, buf, WHITE);
-
-    snprintf(buf, sizeof(buf), "R k=%.3f", s_calib_state.right_scale);
-    hud_draw_text_region(170, 110, 140, 16, 16, buf, WHITE);
-    snprintf(buf, sizeof(buf), "R b=%.1f", s_calib_state.right_bias);
-    hud_draw_text_region(170, 130, 140, 16, 16, buf, WHITE);
-
-    if (s_calib_state.using_defaults) {
-        hud_draw_text_region(80, 205, 180, 16, 16, "DEFAULTS USED", YELLOW);
-    } else {
-        hud_draw_text_region(80, 205, 180, 16, 16, "", YELLOW);
-    }
-
-}
-
-static void draw_calib_tof(void)
-{
-    char buf[32];
-    const char *left_label = s_current_state.tof_left_ok ? "L: %.1f cm" : "L: ---- cm";
-    const char *right_label = s_current_state.tof_right_ok ? "R: %.1f cm" : "R: ---- cm";
-    float left_cm = s_current_state.tof_left_mm / 10.0f;
-    float right_cm = s_current_state.tof_right_mm / 10.0f;
-
-    if (s_current_state.tof_left_ok) {
-        snprintf(buf, sizeof(buf), left_label, left_cm);
-    } else {
-        snprintf(buf, sizeof(buf), "%s", left_label);
-    }
-    if (hud_text_changed(s_last_calib_tof_left, sizeof(s_last_calib_tof_left), buf)) {
-        hud_draw_text_region(10, 150, 140, 16, 16, buf, WHITE);
-    }
-
-    if (s_current_state.tof_right_ok) {
-        snprintf(buf, sizeof(buf), right_label, right_cm);
-    } else {
-        snprintf(buf, sizeof(buf), "%s", right_label);
-    }
-    if (hud_text_changed(s_last_calib_tof_right, sizeof(s_last_calib_tof_right), buf)) {
-        hud_draw_text_region(170, 150, 140, 16, 16, buf, WHITE);
-    }
 }
 
 // Draw the static borders and texts only once to save CPU time
@@ -257,25 +142,6 @@ static void draw_static_ui_framework(void)
     lcd_show_string(13, 190, 36, 24, 24, "Y:", GRAY);
     lcd_show_string(190, 155, 40, 16, 16, "HDG:", GRAY);
 
-}
-
-static void draw_tof_ui_framework(void)
-{
-    const uint16_t max_x = (uint16_t)(LCD_WIDTH - 1);
-    const uint16_t max_y = (uint16_t)(LCD_HEIGHT - 1);
-
-    lcd_clear(BLACK);
-
-    hud_draw_line(0, 40, max_x, 40, GRAY);
-    hud_draw_line(0, 41, max_x, 41, DARKBLUE);
-    hud_fill(0, 0, 6, 40, CYAN);
-
-    lcd_show_string(12, 10, 200, 20, 20, "TOF RANGE", WHITE);
-    hud_draw_line(0, 140, max_x, 140, GRAY);
-    hud_draw_line(0, (uint16_t)(max_y - 1), max_x, (uint16_t)(max_y - 1), DARKBLUE);
-
-    lcd_show_string(20, 70, 80, 24, 24, "LEFT", GRAY);
-    lcd_show_string(20, 170, 80, 24, 24, "RIGHT", GRAY);
 }
 
 static void hud_draw_car_id(const char *car_id)
@@ -316,14 +182,7 @@ static void disp_refresh_task(void *pvParameters)
     while (1) {
         if (s_page_dirty) {
             hud_reset_cache();
-            if (s_current_page == DISP_PAGE_STATUS) {
-                draw_static_ui_framework();
-            } else if (s_current_page == DISP_PAGE_TOF) {
-                draw_tof_ui_framework();
-            } else {
-                draw_calib_ui_framework();
-                s_calib_dirty = true;
-            }
+            draw_static_ui_framework();
             s_page_dirty = false;
         }
 
@@ -400,41 +259,6 @@ static void disp_refresh_task(void *pvParameters)
             if (hud_text_changed(s_last_yaw, sizeof(s_last_yaw), str_buf)) {
                 hud_draw_text_region(225, 185, 90, 24, 24, str_buf, YELLOW);
             }
-        } else if (s_current_page == DISP_PAGE_TOF) {
-            const char *left_label = s_current_state.tof_left_ok ? "L: %.1f cm" : "L: ---- cm";
-            const char *right_label = s_current_state.tof_right_ok ? "R: %.1f cm" : "R: ---- cm";
-
-            if (s_current_state.tof_left_ok) {
-                float left_cm = (float)s_current_state.tof_left_mm / 10.0f;
-                snprintf(str_buf, sizeof(str_buf), left_label, left_cm);
-            } else {
-                snprintf(str_buf, sizeof(str_buf), "%s", left_label);
-            }
-            if (hud_text_changed(s_last_tof_left, sizeof(s_last_tof_left), str_buf)) {
-                hud_draw_text_region(120, 70, 180, 24, 24, str_buf, WHITE);
-            }
-
-            if (s_current_state.tof_right_ok) {
-                float right_cm = (float)s_current_state.tof_right_mm / 10.0f;
-                snprintf(str_buf, sizeof(str_buf), right_label, right_cm);
-            } else {
-                snprintf(str_buf, sizeof(str_buf), "%s", right_label);
-            }
-            if (hud_text_changed(s_last_tof_right, sizeof(s_last_tof_right), str_buf)) {
-                hud_draw_text_region(120, 170, 180, 24, 24, str_buf, WHITE);
-            }
-        } else {
-            if (s_calib_dirty || memcmp(&s_calib_state, &s_last_calib_state, sizeof(s_calib_state)) != 0) {
-                draw_calib_boxes();
-                draw_calib_params();
-                s_last_calib_state = s_calib_state;
-                s_calib_dirty = false;
-                s_calib_tof_dirty = true;
-            }
-            if (s_calib_tof_dirty) {
-                draw_calib_tof();
-                s_calib_tof_dirty = false;
-            }
         }
 
         // Run at 20 FPS for smooth updates
@@ -453,10 +277,6 @@ void disp_mgr_init(void)
     s_current_state.wifi_connected = false;
     s_current_state.mode = SYS_MODE_IDLE;
     s_current_state.last_rx_ms = 0; // Starts as LOST until data arrives
-    s_current_state.tof_left_mm = 0;
-    s_current_state.tof_right_mm = 0;
-    s_current_state.tof_left_ok = false;
-    s_current_state.tof_right_ok = false;
     s_current_page = DISP_PAGE_STATUS;
     s_page_dirty = true;
 
@@ -478,18 +298,6 @@ void disp_mgr_update_status(const char *car_id, bool wifi_connected,
     s_current_state.last_rx_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
 }
 
-void disp_mgr_update_tof(uint16_t left_mm, bool left_ok,
-                         uint16_t right_mm, bool right_ok)
-{
-    s_current_state.tof_left_mm = left_mm;
-    s_current_state.tof_right_mm = right_mm;
-    s_current_state.tof_left_ok = left_ok;
-    s_current_state.tof_right_ok = right_ok;
-    if (s_current_page == DISP_PAGE_CALIB) {
-        s_calib_tof_dirty = true;
-    }
-}
-
 void disp_mgr_set_page(disp_page_t page)
 {
     if (page != s_current_page) {
@@ -505,20 +313,5 @@ disp_page_t disp_mgr_get_page(void)
 
 void disp_mgr_next_page(void)
 {
-    if (s_current_page == DISP_PAGE_STATUS) {
-        disp_mgr_set_page(DISP_PAGE_TOF);
-    } else if (s_current_page == DISP_PAGE_TOF) {
-        disp_mgr_set_page(DISP_PAGE_CALIB);
-    } else {
-        disp_mgr_set_page(DISP_PAGE_STATUS);
-    }
-}
-
-void disp_mgr_update_calib(const disp_calib_state_t *state)
-{
-    if (!state) {
-        return;
-    }
-    s_calib_state = *state;
-    s_calib_dirty = true;
+    disp_mgr_set_page(DISP_PAGE_STATUS);
 }

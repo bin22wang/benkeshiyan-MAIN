@@ -36,8 +36,6 @@
 #include "bsp_i2c.h"
 #include "disp_mgr.h"
 #include "xl9555.h"
-#include "modules/tof_ctrl.h"
-#include "modules/calib_mgr.h"
 
 /* ========== 模块日志标签 ========== */
 static const char *TAG = "app_main";
@@ -90,9 +88,6 @@ static const char *lookup_car_id_by_mac(const uint8_t mac[6])
 
 /** 显示状态检查间隔（毫秒） */
 #define DISP_UPDATE_INTERVAL_MS    50
-
-/** ToF 测距更新间隔（毫秒） */
-#define TOF_UPDATE_INTERVAL_MS     50
 
 /** BOOT 按键配置 */
 #define BOOT_KEY_GPIO              GPIO_NUM_0
@@ -356,10 +351,6 @@ static void boot_key_task(void *pvParameters)
             vTaskDelay(pdMS_TO_TICKS(BOOT_KEY_DEBOUNCE_MS));
             level = gpio_get_level(BOOT_KEY_GPIO);
             if (level == BOOT_KEY_ACTIVE_LEVEL) {
-                if (!(calib_mgr_is_active() && disp_mgr_get_page() == DISP_PAGE_CALIB)) {
-                    disp_mgr_next_page();
-                    calib_mgr_set_active(disp_mgr_get_page() == DISP_PAGE_CALIB);
-                }
                 while (gpio_get_level(BOOT_KEY_GPIO) == BOOT_KEY_ACTIVE_LEVEL) {
                     vTaskDelay(pdMS_TO_TICKS(10));
                 }
@@ -367,22 +358,6 @@ static void boot_key_task(void *pvParameters)
         }
         last_level = level;
         vTaskDelay(pdMS_TO_TICKS(10));
-    }
-}
-
-static void tof_task(void *pvParameters)
-{
-    (void)pvParameters;
-
-    while (1) {
-        tof_dual_reading_t reading = {0};
-        if (tof_ctrl_read(&reading) == ESP_OK) {
-            disp_mgr_update_tof(reading.left_mm, reading.left_ok,
-                                reading.right_mm, reading.right_ok);
-        } else {
-            disp_mgr_update_tof(0, false, 0, false);
-        }
-        vTaskDelay(pdMS_TO_TICKS(TOF_UPDATE_INTERVAL_MS));
     }
 }
 
@@ -463,15 +438,6 @@ void app_main(void)
 #endif
     disp_mgr_init();
     xTaskCreate(display_task, "display_task", 4096, (void *)own_car_id, 3, NULL);
-
-    if (tof_ctrl_init() == ESP_OK) {
-        xTaskCreate(tof_task, "tof_task", 4096, NULL, 3, NULL);
-    } else {
-        ESP_LOGW(TAG, "ToF init failed, skip ranging task");
-    }
-
-    calib_mgr_init();
-    calib_mgr_start();
 
     xTaskCreate(boot_key_task, "boot_key_task", 4096, NULL, 3, NULL);
 

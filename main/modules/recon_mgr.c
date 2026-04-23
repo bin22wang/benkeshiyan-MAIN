@@ -12,7 +12,6 @@
 #include "udp_comm.h"
 #include "vel_solver.h"
 #include "proto_parser.h"
-#include "tof_ctrl.h"
 
 #define RECON_CAR_ID_LEN 10
 #define RECON_ORDER_LEN  4
@@ -404,19 +403,6 @@ static void recon_handle_preparing(void)
     }
 }
 
-static bool recon_check_dock_success(const tof_dual_reading_t *tof)
-{
-    if (!tof || !tof->left_ok || !tof->right_ok) return false;
-    float dl = (float)tof->left_mm;
-    float dr = (float)tof->right_mm;
-    float delta = dl - dr;
-    float mean = 0.5f * (dl + dr);
-
-    return fabsf(delta) <= k_recon_cfg.tof_deadband_mm
-        && mean >= k_recon_cfg.tof_dock_min_mm
-        && mean <= k_recon_cfg.tof_dock_max_mm;
-}
-
 static void recon_update_magnet(bool enable)
 {
     if (s_sep_magnet_on == enable) return;
@@ -463,20 +449,11 @@ static void recon_handle_separating(void)
     }
 
     if (s_sep_phase == SEP_PHASE_BACK) {
-        tof_dual_reading_t tof = {0};
-        uint32_t age_ms = 0;
-        bool tof_ok = (tof_ctrl_get_latest(&tof, &age_ms) == ESP_OK) && age_ms < 200;
-        if (tof_ok && tof.left_ok && tof.right_ok) {
-            float mean = 0.5f * ((float)tof.left_mm + (float)tof.right_mm);
-            if (!s_sep_reported && mean >= k_recon_cfg.sep_success_mm) {
-                char msg[48];
-                snprintf(msg, sizeof(msg), "[R,SEP_OK,%s,POS=%s]", s_own_id, recon_mgr_pos_str(s_last_pos));
-                recon_send(msg);
-                s_sep_reported = true;
-                s_sep_phase = SEP_PHASE_POST;
-                s_sep_phase_ms = now;
-                ESP_LOGI(TAG, "separation success: mean=%.1fmm", mean);
-            }
+        if (!s_sep_reported && (now - s_sep_phase_ms) >= k_recon_cfg.sep_post_back_ms) {
+            s_sep_reported = true;
+            s_sep_phase = SEP_PHASE_POST;
+            s_sep_phase_ms = now;
+            ESP_LOGW(TAG, "separation timed out without ToF, enter post phase");
         }
     }
 
@@ -514,46 +491,9 @@ static void recon_handle_assembling(void)
         target_yaw = front->yaw;
     }
 
-    tof_dual_reading_t tof = {0};
-    uint32_t age_ms = 0;
-    bool tof_ok = (tof_ctrl_get_latest(&tof, &age_ms) == ESP_OK) && age_ms < 200;
-
     float vx = 0.0f;
     float vy = 0.0f;
     float vz = 0.0f;
-
-    if (tof_ok && tof.left_ok && tof.right_ok) {
-        float dl = (float)tof.left_mm;
-        float dr = (float)tof.right_mm;
-        float delta = dl - dr;
-        float abs_delta = fabsf(delta);
-
-        if (abs_delta <= k_recon_cfg.tof_deadband_mm) {
-            delta = 0.0f;
-            abs_delta = 0.0f;
-        }
-
-        vy = clamp_float(delta * k_recon_cfg.tof_vy_k,
-                         -k_recon_cfg.tof_vy_max,
-                         k_recon_cfg.tof_vy_max);
-
-        float align_ratio = 1.0f - clamp_float(abs_delta / k_recon_cfg.tof_align_limit_mm, 0.0f, 1.0f);
-        vx = k_recon_cfg.tof_vx_min + (k_recon_cfg.tof_vx_max - k_recon_cfg.tof_vx_min) * align_ratio;
-
-        if (recon_check_dock_success(&tof)) {
-            char msg[48];
-            snprintf(msg, sizeof(msg), "[R,STEP_OK,%s,POS=%s]", s_own_id, recon_mgr_pos_str(s_last_pos));
-            recon_send(msg);
-            vel_solver_stop();
-            set_state(RECON_STATE_ASSEMBLED);
-            s_step_active = false;
-            ESP_LOGI(TAG, "dock success: dl=%u dr=%u", (unsigned int)tof.left_mm, (unsigned int)tof.right_mm);
-            return;
-        }
-    } else {
-        vx = 0.0f;
-        vy = 0.0f;
-    }
 
     float yaw_err = wrap_deg(target_yaw - own->yaw);
     vz = clamp_float(yaw_err * k_recon_cfg.tof_yaw_k,

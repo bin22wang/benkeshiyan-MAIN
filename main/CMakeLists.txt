@@ -11,9 +11,6 @@ idf_component_register(
     "modules/proto_parser.c"
     "modules/vel_solver.c"
     "modules/uart.c"
-        "modules/tof_ctrl.c"
-    "modules/calib_mgr.c"
-    "modules/calib_store.c"
     INCLUDE_DIRS
         "."          # 使 app_main.c 能用 #include "modules/xxx.h"
         "modules"    # 使模块内部互相 #include "xxx.h" 无需路径前缀
@@ -25,6 +22,4 @@ idf_component_register(
         lwip
         driver
         disp_mgr
-        esp32-vl53l0x-master
-        AT24C02
 )
