@@ -34,6 +34,7 @@
 #include "modules/uart.h"
 #include "modules/vel_solver.h"
 #include "modules/camera_ui.h"
+#include "modules/aruco_pose.h"
 #include "bsp_i2c.h"
 #include "disp_mgr.h"
 #include "xl9555.h"
@@ -454,6 +455,8 @@ void app_main(void)
     if (!camera_ui_init()) {
         ESP_LOGW(TAG, "Camera UI init failed");
     }
+
+    aruco_pose_init();
 
     xTaskCreate(boot_key_task, "boot_key_task", 4096, NULL, 3, NULL);
 

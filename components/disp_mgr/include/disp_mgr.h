@@ -37,6 +37,8 @@ disp_page_t disp_mgr_get_page(void);
 void disp_mgr_update_status(const char *car_id, bool wifi_connected,
                             sys_mode_t mode, float x, float y, float yaw);
 
+void disp_mgr_update_aruco(float x, float y, float yaw, float conf, bool valid);
+
 
 #ifdef __cplusplus
 }

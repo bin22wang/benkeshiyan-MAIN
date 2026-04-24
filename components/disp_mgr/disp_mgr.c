@@ -28,6 +28,11 @@ typedef struct {
     float y;
     float yaw;
     uint32_t last_rx_ms;
+    float aruco_x;
+    float aruco_y;
+    float aruco_yaw;
+    float aruco_conf;
+    bool aruco_valid;
 } disp_state_t;
 
 static disp_state_t s_current_state = {0};
@@ -42,6 +47,11 @@ static char s_last_x[16] = {0};
 static char s_last_y[16] = {0};
 static char s_last_yaw[16] = {0};
 static uint16_t s_last_wlan_color = 0;
+
+static char s_last_cam_x[16] = {0};
+static char s_last_cam_y[16] = {0};
+static char s_last_cam_yaw[16] = {0};
+static char s_last_cam_conf[16] = {0};
 
 
 static void hud_draw_point(uint16_t x, uint16_t y, uint16_t color)
@@ -108,6 +118,10 @@ static void hud_reset_cache(void)
     s_last_y[0] = '\0';
     s_last_yaw[0] = '\0';
     s_last_wlan_color = 0;
+    s_last_cam_x[0] = '\0';
+    s_last_cam_y[0] = '\0';
+    s_last_cam_yaw[0] = '\0';
+    s_last_cam_conf[0] = '\0';
 }
 
 // Draw the static borders and texts only once to save CPU time
@@ -259,6 +273,53 @@ static void disp_refresh_task(void *pvParameters)
             if (hud_text_changed(s_last_yaw, sizeof(s_last_yaw), str_buf)) {
                 hud_draw_text_region(225, 185, 90, 24, 24, str_buf, YELLOW);
             }
+        } else if (s_current_page == DISP_PAGE_CAMERA) {
+            const uint16_t top_y = 10;
+            const uint16_t top_h = 16;
+
+            const char *x_text = "X:--.--";
+            const char *y_text = "Y:--.--";
+            const char *yaw_text = "A:--.-";
+            const char *conf_text = "C:--";
+
+            if (s_current_state.aruco_valid) {
+                snprintf(str_buf, sizeof(str_buf), "X:%+05.2f", s_current_state.aruco_x);
+                x_text = str_buf;
+                if (hud_text_changed(s_last_cam_x, sizeof(s_last_cam_x), x_text)) {
+                    hud_draw_text_region(12, top_y, 84, top_h, 16, x_text, WHITE);
+                }
+
+                snprintf(str_buf, sizeof(str_buf), "Y:%+05.2f", s_current_state.aruco_y);
+                y_text = str_buf;
+                if (hud_text_changed(s_last_cam_y, sizeof(s_last_cam_y), y_text)) {
+                    hud_draw_text_region(106, top_y, 84, top_h, 16, y_text, WHITE);
+                }
+
+                snprintf(str_buf, sizeof(str_buf), "A:%+04.1f", s_current_state.aruco_yaw);
+                yaw_text = str_buf;
+                if (hud_text_changed(s_last_cam_yaw, sizeof(s_last_cam_yaw), yaw_text)) {
+                    hud_draw_text_region(200, top_y, 72, top_h, 16, yaw_text, YELLOW);
+                }
+
+                snprintf(str_buf, sizeof(str_buf), "C:%0.2f", s_current_state.aruco_conf);
+                conf_text = str_buf;
+                if (hud_text_changed(s_last_cam_conf, sizeof(s_last_cam_conf), conf_text)) {
+                    hud_draw_text_region(272, top_y, 44, top_h, 16, conf_text, UI_GREEN);
+                }
+            } else {
+                if (hud_text_changed(s_last_cam_x, sizeof(s_last_cam_x), x_text)) {
+                    hud_draw_text_region(12, top_y, 84, top_h, 16, x_text, GRAY);
+                }
+                if (hud_text_changed(s_last_cam_y, sizeof(s_last_cam_y), y_text)) {
+                    hud_draw_text_region(106, top_y, 84, top_h, 16, y_text, GRAY);
+                }
+                if (hud_text_changed(s_last_cam_yaw, sizeof(s_last_cam_yaw), yaw_text)) {
+                    hud_draw_text_region(200, top_y, 72, top_h, 16, yaw_text, GRAY);
+                }
+                if (hud_text_changed(s_last_cam_conf, sizeof(s_last_cam_conf), conf_text)) {
+                    hud_draw_text_region(272, top_y, 44, top_h, 16, conf_text, GRAY);
+                }
+            }
         }
 
         // Run at 20 FPS for smooth updates
@@ -298,12 +359,24 @@ void disp_mgr_update_status(const char *car_id, bool wifi_connected,
     s_current_state.last_rx_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
 }
 
+void disp_mgr_update_aruco(float x, float y, float yaw, float conf, bool valid)
+{
+    s_current_state.aruco_x = x;
+    s_current_state.aruco_y = y;
+    s_current_state.aruco_yaw = yaw;
+    s_current_state.aruco_conf = conf;
+    s_current_state.aruco_valid = valid;
+}
+
 void disp_mgr_set_page(disp_page_t page)
 {
     if (page != s_current_page) {
         s_current_page = page;
         if (s_current_page == DISP_PAGE_CAMERA) {
+            lcd_set_invert(true);
             lcd_clear(BLACK);
+        } else {
+            lcd_set_invert(false);
         }
         s_page_dirty = true;
     }

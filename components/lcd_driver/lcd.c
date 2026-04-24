@@ -277,6 +277,11 @@ void lcd_set_dir(uint8_t dir)
     lcd_unlock();
 }
 
+void lcd_set_invert(bool enable)
+{
+    lcd_write_cmd(enable ? 0x21 : 0x20);
+}
+
 void lcd_init(void)
 {
     lcd_mutex_init();
@@ -379,6 +384,8 @@ void lcd_init(void)
         uint8_t data[] = {0xD0, 0x04, 0x0C, 0x11, 0x13, 0x2C, 0x3F, 0x44, 0x51, 0x2F, 0x1F, 0x1F, 0x20, 0x23};
         lcd_write_data(data, (int)sizeof(data));
     }
+
+    lcd_write_cmd(0x20);
 
     lcd_set_dir(1);
     lcd_write_cmd(0x29);

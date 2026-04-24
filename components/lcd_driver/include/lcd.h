@@ -65,3 +65,4 @@ void lcd_show_string(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
                      uint8_t size, char *p, uint16_t color);
 void lcd_draw_rgb565(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
                      const uint8_t *buf, size_t buf_len);
+void lcd_set_invert(bool enable);
