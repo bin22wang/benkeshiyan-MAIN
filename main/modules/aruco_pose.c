@@ -10,6 +10,18 @@
 
 static aruco_pose_t s_pose = {0};
 
+static const camera_intrinsics_t s_cam_intrinsics = {
+    .fx = 464.46820947f,
+    .fy = 464.22326354f,
+    .cx = 303.11632912f,
+    .cy = 248.80727850f,
+    .k1 = -0.18730791f,
+    .k2 = 0.66130370f,
+    .p1 = -0.00496652f,
+    .p2 = -0.00285747f,
+    .k3 = -2.16763727f,
+};
+
 static void aruco_pose_task(void *pvParameters)
 {
     (void)pvParameters;
@@ -52,4 +64,9 @@ bool aruco_pose_get_latest(aruco_pose_t *out)
 
     *out = s_pose;
     return true;
+}
+
+const camera_intrinsics_t *aruco_pose_get_intrinsics(void)
+{
+    return &s_cam_intrinsics;
 }
