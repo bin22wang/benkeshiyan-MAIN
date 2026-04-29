@@ -40,6 +40,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "video_streamer.h"
 
 static const char *TAG = "proto";
 
@@ -65,6 +66,9 @@ static proto_cmd_formation_t s_formation_cmd;
 
 /** 远端小车状态表，最多 PROTO_MAX_CARS 辆 */
 static proto_car_state_t     s_cars[PROTO_MAX_CARS];
+
+/** 最新收到的视频流控制命令（V 协议） */
+static proto_video_state_t   s_video_cmd;
 
 /* ========================================================================
  * 工具函数
@@ -135,6 +139,7 @@ void proto_parser_init(const char *own_car_id)
     memset(&s_topology,      0, sizeof(s_topology));
     memset(&s_move_cmd,      0, sizeof(s_move_cmd));
     memset(&s_formation_cmd, 0, sizeof(s_formation_cmd));
+    memset(&s_video_cmd,     0, sizeof(s_video_cmd));
     memset(s_cars,           0, sizeof(s_cars));
 
     /* 默认拓扑：全连通，自身不发给自身（对角线为 0） */
@@ -222,6 +227,28 @@ bool proto_consume_formation_cmd(proto_cmd_formation_t *out)
     *out = s_formation_cmd;
     s_formation_cmd.valid = false;
     return true;
+}
+
+/* ========================================================================
+ * 视频流控制 Accessor (V 协议)
+ * ======================================================================*/
+
+/**
+ * @brief 消费最新的视频流控制命令（一次性读取）。
+ *
+ * 调用后内部 valid 标志清除，同一条指令不会被二次消费。
+ *
+ * @return 解析得到的命令类型（VIDEO_CMD_START、VIDEO_CMD_STOP 或 VIDEO_CMD_NONE）
+ */
+proto_video_cmd_t proto_consume_video_cmd(void)
+{
+    if (!s_video_cmd.valid) return VIDEO_CMD_NONE;
+    
+    proto_video_cmd_t cmd = s_video_cmd.cmd;
+    s_video_cmd.valid = false;
+    s_video_cmd.cmd = VIDEO_CMD_NONE;
+    
+    return cmd;
 }
 
 /* ========================================================================
@@ -761,13 +788,77 @@ static void parse_manual_cmd(const char *data)
     vel_solver_set_manual_speed(vx, vy, vz);
 }
 
+/**
+ * @brief 解析 V 协议（视频流控制）
+ *
+ * 支持的格式：
+ *  - [V,START,<CARn>]  开启图传（仅当 CARn 与本机 ID 匹配）
+ *  - [V,STOP,<CARn>]   关闭图传（仅当 CARn 与本机 ID 匹配）
+ *
+ * 与其他协议不同，V 协议无需检查 recon_filter，允许在控制运行中启停图传。
+ */
+static void parse_video_cmd(const char *data)
+{
+    char target[PROTO_CAR_ID_LEN] = {0};
+
+    if (strncmp(data, "[V,START,", 9) == 0) {
+        if (sscanf(data, "[V,START,%9[^]]", target) != 1) {
+            ESP_LOGW(TAG, "[VIDEO] START parse failed: %s", data);
+            return;
+        }
+
+        if (strcmp(target, s_own_id) != 0) {
+            ESP_LOGD(TAG, "[VIDEO] START for %s (not us, skip)", target);
+            return;
+        }
+
+        s_video_cmd.cmd = VIDEO_CMD_START;
+        s_video_cmd.valid = true;
+        ESP_LOGI(TAG, "[VIDEO] START command received for %s", target);
+        video_streamer_start();
+        return;
+    }
+
+    if (strncmp(data, "[V,STOP,", 8) == 0) {
+        if (sscanf(data, "[V,STOP,%9[^]]", target) != 1) {
+            ESP_LOGW(TAG, "[VIDEO] STOP parse failed: %s", data);
+            return;
+        }
+
+        if (strcmp(target, s_own_id) != 0) {
+            ESP_LOGD(TAG, "[VIDEO] STOP for %s (not us, skip)", target);
+            return;
+        }
+
+        s_video_cmd.cmd = VIDEO_CMD_STOP;
+        s_video_cmd.valid = true;
+        ESP_LOGI(TAG, "[VIDEO] STOP command received for %s", target);
+        video_streamer_stop();
+        return;
+    }
+
+    /* 兼容旧版不带 ID 的格式：显式忽略，避免误触发 */
+    if (strncmp(data, "[V,START]", 9) == 0) {
+        ESP_LOGW(TAG, "[VIDEO] legacy START format without ID ignored: %s", data);
+        return;
+    }
+
+    if (strncmp(data, "[V,STOP]", 8) == 0) {
+        ESP_LOGW(TAG, "[VIDEO] legacy STOP format without ID ignored: %s", data);
+        return;
+    }
+
+    /* 无法识别的 V 协议格式 */
+    ESP_LOGW(TAG, "[VIDEO] unrecognized format: %s", data);
+}
+
 /* ========================================================================
  * 主解析入口
  * ========================================================================
  * 根据消息头字符选择子解析器。
  * 括号格式 [X,...] 按第二个字符分发：
  *   T → 拓扑控制     C → 移动指令     F → 编队指令     M → 手动遥控
- *   0-9 → 广播车辆状态（数字表示车辆数）
+ *   V → 视频流控制   0-9 → 广播车辆状态（数字表示车辆数）
  * 非括号格式按字符串前缀匹配旧版消息。
  * ======================================================================*/
 
@@ -783,6 +874,7 @@ void proto_parse_message(const char *data, size_t len)
             case 'C': parse_move_cmd(data);      return;
             case 'F': parse_formation_cmd(data); return;
             case 'M': parse_manual_cmd(data);    return;
+            case 'V': parse_video_cmd(data);     return;
             default:  break;
         }
         /* 数字开头 → 广播车辆状态 */

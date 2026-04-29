@@ -13,6 +13,7 @@ idf_component_register(
     "modules/uart.c"
     "modules/camera_ui.c"
     "modules/aruco_pose.c"
+    "modules/video_streamer.c"
     INCLUDE_DIRS
         "."          # 使 app_main.c 能用 #include "modules/xxx.h"
         "modules"    # 使模块内部互相 #include "xxx.h" 无需路径前缀
