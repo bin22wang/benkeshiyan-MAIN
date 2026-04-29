@@ -225,7 +225,6 @@ static bool send_jpeg_frame(uint16_t seq_num, const uint8_t *jpg_buf,
 static void video_stream_task(void *pvParameters)
 {
     (void)pvParameters;
-
     ESP_LOGI(TAG, "video_stream_task started");
 
     while (1) {
@@ -235,9 +234,7 @@ static void video_stream_task(void *pvParameters)
             continue;
         }
 
-        /* ---- 已启用流传输 ---- */
-
-        /* 1. 获取摄像头画面缓冲区（高优先级，获取最新帧） */
+        /* 1. 获取摄像头画面缓冲区 */
         camera_fb_t *fb = esp_camera_fb_get();
         if (fb == NULL) {
             ESP_LOGW(TAG, "failed to get camera frame");
@@ -245,23 +242,11 @@ static void video_stream_task(void *pvParameters)
             continue;
         }
 
-        /* 2. 转换为 JPEG 格式 */
-        uint8_t *jpg_buf = NULL;
-        size_t jpg_len = 0;
-
-        if (!frame2jpg(fb, JPEG_QUALITY, &jpg_buf, &jpg_len)) {
-            ESP_LOGW(TAG, "failed to compress frame to JPEG");
-            esp_camera_fb_return(fb);
-            vTaskDelay(pdMS_TO_TICKS(IDLE_SLEEP_MS));
-            continue;
-        }
-
-        /* 3. 释放硬件摄像头缓冲区 */
-        esp_camera_fb_return(fb);
-
-        /* 4. 分片发送 */
-        if (jpg_len > 0 && jpg_buf != NULL) {
-            send_jpeg_frame(s_seq_num, jpg_buf, jpg_len);
+        /* ?? 核心修改：摄像头现在直接输出硬件 JPEG！
+           我们不需要 frame2jpg，直接把 fb->buf 发送出去！ */
+        if (fb->len > 0 && fb->buf != NULL) {
+            // 直接调用发送函数，把 fb->buf 当作图片数据发走
+            send_jpeg_frame(s_seq_num, fb->buf, fb->len);
 
             /* 升级序列号 */
             s_seq_num++;
@@ -270,14 +255,11 @@ static void video_stream_task(void *pvParameters)
             }
         }
 
-        /* 5. 释放 JPEG 缓冲区 */
-        if (jpg_buf != NULL) {
-            free(jpg_buf);
-            jpg_buf = NULL;
-        }
+        /* 3. 必须归还硬件摄像头缓冲区，否则内存泄漏！ */
+        esp_camera_fb_return(fb);
 
-        /* 6. 帧间延时，控制帧率 5~10 FPS */
-        vTaskDelay(pdMS_TO_TICKS(FRAME_INTERVAL_MS));
+        /* 4. 帧间延时：因为不需要压缩了，我们把休息时间缩短到 5ms，冲击高帧率！ */
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 
     vTaskDelete(NULL);
