@@ -35,7 +35,6 @@
 #include "modules/vel_solver.h"
 #include "modules/camera_ui.h"
 #include "modules/aruco_pose.h"
-#include "video_streamer.h"
 #include "bsp_i2c.h"
 #include "disp_mgr.h"
 #include "xl9555.h"
@@ -487,8 +486,6 @@ void app_main(void)
         return;
     }
     ESP_LOGI(TAG, "Step 4/5: UDP init OK");
-    // 初始化图传任务！
-    video_streamer_init(own_car_id);
     /* --- Step 5: Register RX callback --- */
     udp_comm_register_rx_callback(on_udp_data_received);
     ESP_LOGI(TAG, "Step 5/5: UDP RX callback registered");

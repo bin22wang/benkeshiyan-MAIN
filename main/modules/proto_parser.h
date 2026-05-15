@@ -96,24 +96,6 @@ typedef struct {
     bool    valid;
 } proto_car_state_t;
 
-/**
- * @brief Video stream control command (V Protocol)
- *
- * Supports: [V,START] or [V,STOP]
- */
-typedef enum {
-    VIDEO_CMD_NONE   = 0,
-    VIDEO_CMD_START  = 1,   /**< [V,START] - start video streaming */
-    VIDEO_CMD_STOP   = 2    /**< [V,STOP]  - stop video streaming  */
-} proto_video_cmd_t;
-
-/**
- * @brief Internal state for V protocol command
- */
-typedef struct {
-    proto_video_cmd_t cmd;
-    bool              valid;  /**< true when fresh command parsed */
-} proto_video_state_t;
 
 /* ========== Initialisation ========== */
 
@@ -209,18 +191,6 @@ const proto_car_state_t *proto_get_all_car_states(int *count);
  * @param timeout_ms  Stale threshold in milliseconds (e.g. 3000).
  */
 void proto_cleanup_stale_cars(uint32_t timeout_ms);
-
-/* ========== Video Stream Accessors (V Protocol) ========== */
-
-/**
- * @brief Consume the latest video stream control command.
- *
- * Retrieves and clears the "valid" flag, ensuring the command
- * is processed only once. Returns VIDEO_CMD_NONE if no new command.
- *
- * @return Parsed video command (START, STOP, or NONE)
- */
-proto_video_cmd_t proto_consume_video_cmd(void);
 
 /* ========== Utility ========== */
 
