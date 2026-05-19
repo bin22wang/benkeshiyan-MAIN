@@ -21,8 +21,18 @@ typedef enum {
 
 typedef enum {
     DISP_PAGE_STATUS = 0,
+    DISP_PAGE_RECON,
     DISP_PAGE_CAMERA
 } disp_page_t;
+
+typedef enum {
+    DISP_RECON_IDLE = 0,
+    DISP_RECON_PREPARING,
+    DISP_RECON_READY,
+    DISP_RECON_ASSEMBLING,
+    DISP_RECON_GUIDING,
+    DISP_RECON_SUCCESS
+} disp_recon_state_t;
 
 void disp_mgr_init(void);
 
@@ -38,6 +48,11 @@ void disp_mgr_update_status(const char *car_id, bool wifi_connected,
                             sys_mode_t mode, float x, float y, float yaw);
 
 void disp_mgr_update_aruco(float x, float y, float yaw, float conf, bool valid);
+
+void disp_mgr_update_recon(const char *own_car_id,
+                           const char order[][10],
+                           int order_count,
+                           disp_recon_state_t state);
 
 
 #ifdef __cplusplus

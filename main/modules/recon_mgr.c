@@ -12,6 +12,7 @@
 #include "proto_parser.h"
 #include "udp_comm.h"
 #include "vel_solver.h"
+#include "disp_mgr.h"
 
 #define RECON_CAR_ID_LEN      10
 #define RECON_ORDER_LEN       4
@@ -20,6 +21,10 @@
 #define RECON_PREP_UPDATE_MS  200
 #define RECON_PREP_POS_TOL_M  0.05f
 #define RECON_PREP_YAW_TOL_DEG 2.0f
+#define RECON_PREP_POS_KP     0.6f
+#define RECON_PREP_YAW_KP     0.02f
+#define RECON_PREP_V_MAX      0.12f
+#define RECON_PREP_VZ_MAX     0.30f
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -32,10 +37,12 @@ static char s_own_id[RECON_CAR_ID_LEN] = "CAR1";
 static char s_order[RECON_ORDER_LEN][RECON_CAR_ID_LEN] = {{0}};
 static int s_order_count = 0;
 static bool s_order_valid = false;
-static char s_front_id[RECON_CAR_ID_LEN] = {0};
+static int s_my_index = -1;
 static uint32_t s_last_prep_set_ms = 0;
 static TaskHandle_t s_task = NULL;
 static bool s_prep_reported = false;
+
+static void recon_notify_display(void);
 
 static bool recon_send(const char *msg)
 {
@@ -53,9 +60,10 @@ const char *recon_mgr_state_str(recon_state_t state)
     switch (state) {
         case RECON_STATE_IDLE: return "idle";
         case RECON_STATE_PREPARING: return "preparing";
+        case RECON_STATE_READY: return "ready";
+        case RECON_STATE_ASSEMBLING: return "assembling";
         case RECON_STATE_GUIDING: return "guiding";
-        case RECON_STATE_WAITING: return "waiting";
-        case RECON_STATE_ERROR: return "error";
+        case RECON_STATE_SUCCESS: return "success";
         default: return "unknown";
     }
 }
@@ -65,7 +73,26 @@ static void set_state(recon_state_t next)
     if (s_state != next) {
         ESP_LOGI(TAG, "state %s -> %s", recon_mgr_state_str(s_state), recon_mgr_state_str(next));
         s_state = next;
+        recon_notify_display();
     }
+}
+
+static disp_recon_state_t to_disp_state(recon_state_t state)
+{
+    switch (state) {
+        case RECON_STATE_IDLE: return DISP_RECON_IDLE;
+        case RECON_STATE_PREPARING: return DISP_RECON_PREPARING;
+        case RECON_STATE_READY: return DISP_RECON_READY;
+        case RECON_STATE_ASSEMBLING: return DISP_RECON_ASSEMBLING;
+        case RECON_STATE_GUIDING: return DISP_RECON_GUIDING;
+        case RECON_STATE_SUCCESS: return DISP_RECON_SUCCESS;
+        default: return DISP_RECON_IDLE;
+    }
+}
+
+static void recon_notify_display(void)
+{
+    disp_mgr_update_recon(s_own_id, s_order, s_order_count, to_disp_state(s_state));
 }
 
 static float wrap_deg(float deg)
@@ -80,7 +107,7 @@ static void clear_order(void)
     memset(s_order, 0, sizeof(s_order));
     s_order_count = 0;
     s_order_valid = false;
-    s_front_id[0] = '\0';
+    s_my_index = -1;
 }
 
 static int find_order_index(const char *car_id)
@@ -92,20 +119,10 @@ static int find_order_index(const char *car_id)
     return -1;
 }
 
-static void update_front_id(void)
-{
-    s_front_id[0] = '\0';
-    int idx = find_order_index(s_own_id);
-    if (idx > 0) {
-        strncpy(s_front_id, s_order[idx - 1], RECON_CAR_ID_LEN - 1);
-        s_front_id[RECON_CAR_ID_LEN - 1] = '\0';
-    }
-}
 
 static void handle_prep(void)
 {
     set_state(RECON_STATE_PREPARING);
-    clear_order();
     s_last_prep_set_ms = 0;
     s_prep_reported = false;
     vel_solver_stop();
@@ -148,16 +165,28 @@ static void handle_order(const char *data)
     }
 
     s_order_valid = (s_order_count > 0);
-    update_front_id();
+    s_my_index = find_order_index(s_own_id);
 
     ESP_LOGI(TAG, "ORDER set (%d entries)", s_order_count);
+    recon_notify_display();
+}
+
+static void handle_asm_start(void)
+{
+    if (s_state != RECON_STATE_READY && s_state != RECON_STATE_SUCCESS) {
+        return;
+    }
+    set_state(RECON_STATE_ASSEMBLING);
+    vel_solver_stop();
+    ESP_LOGI(TAG, "ASM_START received -> ASSEMBLING");
 }
 
 static void handle_step(const char *data)
 {
     if (!data) return;
-    char target[RECON_CAR_ID_LEN] = {0};
+    if (s_state != RECON_STATE_ASSEMBLING) return;
 
+    char target[RECON_CAR_ID_LEN] = {0};
     int n = sscanf(data, "[R,STEP,%9[^,]", target);
     if (n != 1) {
         ESP_LOGW(TAG, "STEP parse failed: %s", data);
@@ -172,13 +201,14 @@ static void handle_step(const char *data)
     snprintf(msg, sizeof(msg), "[R,STEP_ACK,%s]", s_own_id);
     recon_send(msg);
     set_state(RECON_STATE_GUIDING);
-    update_front_id();
     ESP_LOGI(TAG, "STEP for %s -> STEP_ACK", target);
 }
 
 static void handle_guide(const char *data)
 {
     if (!data) return;
+    if (s_state != RECON_STATE_GUIDING) return;
+
     char target[RECON_CAR_ID_LEN] = {0};
     float vx = 0.0f;
     float vy = 0.0f;
@@ -196,13 +226,7 @@ static void handle_guide(const char *data)
         return;
     }
 
-    if (s_state != RECON_STATE_GUIDING && s_state != RECON_STATE_WAITING) {
-        ESP_LOGW(TAG, "GUIDE ignored in state=%s", recon_mgr_state_str(s_state));
-        return;
-    }
-
     if (done == 0) {
-        set_state(RECON_STATE_GUIDING);
         vel_solver_set_manual_speed(vx, vy, vz);
         return;
     }
@@ -212,11 +236,11 @@ static void handle_guide(const char *data)
     char msg[32];
     snprintf(msg, sizeof(msg), "[R,STEP_OK,%s]", s_own_id);
     recon_send(msg);
-    set_state(RECON_STATE_WAITING);
+    set_state(RECON_STATE_SUCCESS);
     ESP_LOGI(TAG, "GUIDE DONE -> STEP_OK");
 }
 
-static void handle_abort_done(const char *reason)
+static void handle_abort(const char *reason)
 {
     ESP_LOGW(TAG, "%s received: stop and reset", reason);
     vel_solver_stop();
@@ -227,24 +251,19 @@ static void handle_abort_done(const char *reason)
 
 static void recon_handle_preparing(void)
 {
-    if (!s_order_valid) {
+    if (!s_order_valid || s_my_index < 0) {
         vel_solver_stop();
         return;
     }
 
-    int idx = find_order_index(s_own_id);
-    if (idx < 0) {
-        vel_solver_stop();
-        return;
-    }
-
-    if (idx == 0) {
+    if (s_my_index == 0) {
         vel_solver_stop();
         if (!s_prep_reported) {
             char msg[32];
             snprintf(msg, sizeof(msg), "[R,PREP_OK,%s]", s_own_id);
             recon_send(msg);
             s_prep_reported = true;
+            set_state(RECON_STATE_READY);
             ESP_LOGI(TAG, "PREP OK (head)");
         }
         return;
@@ -255,35 +274,46 @@ static void recon_handle_preparing(void)
         return;
     }
 
-    const proto_car_state_t *front = proto_get_car_state(s_order[idx - 1]);
+    const char *front_id = s_order[s_my_index - 1];
+    const proto_car_state_t *front = proto_get_car_state(front_id);
     if (!front || !front->valid) {
         vel_solver_stop();
         return;
     }
 
-    float yaw_rad = front->yaw * (float)M_PI / 180.0f;
-    float target_x = front->x - cosf(yaw_rad) * RECON_PREP_SPACING_M;
-    float target_y = front->y - sinf(yaw_rad) * RECON_PREP_SPACING_M;
+    float front_yaw_rad = front->yaw * (float)M_PI / 180.0f;
+    float target_x = front->x - cosf(front_yaw_rad) * RECON_PREP_SPACING_M;
+    float target_y = front->y - sinf(front_yaw_rad) * RECON_PREP_SPACING_M;
     float target_yaw = front->yaw;
 
-    uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
-    if (now - s_last_prep_set_ms >= RECON_PREP_UPDATE_MS) {
-        vel_solver_set_position_target(target_x, target_y, target_yaw);
-        s_last_prep_set_ms = now;
-    }
+    float dx = target_x - own->x;
+    float dy = target_y - own->y;
+    float dist = sqrtf(dx * dx + dy * dy);
+    float yaw_err = wrap_deg(target_yaw - own->yaw);
 
-    if (!s_prep_reported) {
-        float dx = target_x - own->x;
-        float dy = target_y - own->y;
-        float dist = sqrtf(dx * dx + dy * dy);
-        float yaw_err = wrap_deg(target_yaw - own->yaw);
-        if (dist <= RECON_PREP_POS_TOL_M && fabsf(yaw_err) <= RECON_PREP_YAW_TOL_DEG) {
+    if (dist <= RECON_PREP_POS_TOL_M && fabsf(yaw_err) <= RECON_PREP_YAW_TOL_DEG) {
+        vel_solver_stop();
+        if (!s_prep_reported) {
             char msg[32];
             snprintf(msg, sizeof(msg), "[R,PREP_OK,%s]", s_own_id);
             recon_send(msg);
             s_prep_reported = true;
+            set_state(RECON_STATE_READY);
             ESP_LOGI(TAG, "PREP OK (rear) dist=%.3f yaw_err=%.1f", dist, yaw_err);
         }
+        return;
+    }
+
+    uint32_t now = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+    if (now - s_last_prep_set_ms >= RECON_PREP_UPDATE_MS) {
+        float own_yaw_rad = own->yaw * (float)M_PI / 180.0f;
+        float body_x = cosf(own_yaw_rad) * dx + sinf(own_yaw_rad) * dy;
+        float body_y = -sinf(own_yaw_rad) * dx + cosf(own_yaw_rad) * dy;
+        float vx = fmaxf(fminf(body_x * RECON_PREP_POS_KP, RECON_PREP_V_MAX), -RECON_PREP_V_MAX);
+        float vy = fmaxf(fminf(body_y * RECON_PREP_POS_KP, RECON_PREP_V_MAX), -RECON_PREP_V_MAX);
+        float vz = fmaxf(fminf(yaw_err * RECON_PREP_YAW_KP, RECON_PREP_VZ_MAX), -RECON_PREP_VZ_MAX);
+        vel_solver_set_manual_speed(vx, vy, vz);
+        s_last_prep_set_ms = now;
     }
 }
 
@@ -311,6 +341,8 @@ void recon_mgr_init(const char *own_car_id)
     s_prep_reported = false;
     ESP_LOGI(TAG, "init OK, own_id=%s", s_own_id);
 
+    recon_notify_display();
+
     recon_mgr_start();
 }
 
@@ -332,6 +364,10 @@ void recon_mgr_handle_message(const char *data, size_t len)
         handle_order(data);
         return;
     }
+    if (strncmp(data, "[R,ASM_START]", 13) == 0) {
+        handle_asm_start();
+        return;
+    }
     if (strncmp(data, "[R,STEP,", 8) == 0) {
         handle_step(data);
         return;
@@ -341,11 +377,7 @@ void recon_mgr_handle_message(const char *data, size_t len)
         return;
     }
     if (strncmp(data, "[R,ABORT]", 9) == 0) {
-        handle_abort_done("ABORT");
-        return;
-    }
-    if (strncmp(data, "[R,DONE]", 8) == 0) {
-        handle_abort_done("DONE");
+        handle_abort("ABORT");
         return;
     }
 
@@ -357,3 +389,5 @@ void recon_mgr_start(void)
     if (s_task != NULL) return;
     xTaskCreate(recon_mgr_task, "recon_task", 4096, NULL, 4, &s_task);
 }
+
+static void recon_notify_display(void);

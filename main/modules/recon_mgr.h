@@ -11,9 +11,10 @@ extern "C" {
 typedef enum {
     RECON_STATE_IDLE = 0,
     RECON_STATE_PREPARING,
+    RECON_STATE_READY,
+    RECON_STATE_ASSEMBLING,
     RECON_STATE_GUIDING,
-    RECON_STATE_WAITING,
-    RECON_STATE_ERROR,
+    RECON_STATE_SUCCESS,
 } recon_state_t;
 
 void recon_mgr_init(const char *own_car_id);
