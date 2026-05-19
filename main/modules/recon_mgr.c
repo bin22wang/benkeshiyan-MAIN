@@ -18,6 +18,8 @@
 #define RECON_TASK_INTERVAL_MS 50
 #define RECON_PREP_SPACING_M  0.70f
 #define RECON_PREP_UPDATE_MS  200
+#define RECON_PREP_POS_TOL_M  0.05f
+#define RECON_PREP_YAW_TOL_DEG 2.0f
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -33,6 +35,7 @@ static bool s_order_valid = false;
 static char s_front_id[RECON_CAR_ID_LEN] = {0};
 static uint32_t s_last_prep_set_ms = 0;
 static TaskHandle_t s_task = NULL;
+static bool s_prep_reported = false;
 
 static bool recon_send(const char *msg)
 {
@@ -63,6 +66,13 @@ static void set_state(recon_state_t next)
         ESP_LOGI(TAG, "state %s -> %s", recon_mgr_state_str(s_state), recon_mgr_state_str(next));
         s_state = next;
     }
+}
+
+static float wrap_deg(float deg)
+{
+    while (deg > 180.0f) deg -= 360.0f;
+    while (deg < -180.0f) deg += 360.0f;
+    return deg;
 }
 
 static void clear_order(void)
@@ -97,12 +107,10 @@ static void handle_prep(void)
     set_state(RECON_STATE_PREPARING);
     clear_order();
     s_last_prep_set_ms = 0;
+    s_prep_reported = false;
     vel_solver_stop();
 
-    char msg[32];
-    snprintf(msg, sizeof(msg), "[R,PREP_OK,%s]", s_own_id);
-    recon_send(msg);
-    ESP_LOGI(TAG, "PREP received -> PREP_OK sent");
+    ESP_LOGI(TAG, "PREP received -> wait for target before PREP_OK");
 }
 
 static void handle_order(const char *data)
@@ -213,6 +221,7 @@ static void handle_abort_done(const char *reason)
     ESP_LOGW(TAG, "%s received: stop and reset", reason);
     vel_solver_stop();
     clear_order();
+    s_prep_reported = false;
     set_state(RECON_STATE_IDLE);
 }
 
@@ -231,6 +240,18 @@ static void recon_handle_preparing(void)
 
     if (idx == 0) {
         vel_solver_stop();
+        if (!s_prep_reported) {
+            char msg[32];
+            snprintf(msg, sizeof(msg), "[R,PREP_OK,%s]", s_own_id);
+            recon_send(msg);
+            s_prep_reported = true;
+            ESP_LOGI(TAG, "PREP OK (head)");
+        }
+        return;
+    }
+
+    const vel_own_state_t *own = vel_solver_get_own_state();
+    if (!own->valid) {
         return;
     }
 
@@ -249,6 +270,20 @@ static void recon_handle_preparing(void)
     if (now - s_last_prep_set_ms >= RECON_PREP_UPDATE_MS) {
         vel_solver_set_position_target(target_x, target_y, target_yaw);
         s_last_prep_set_ms = now;
+    }
+
+    if (!s_prep_reported) {
+        float dx = target_x - own->x;
+        float dy = target_y - own->y;
+        float dist = sqrtf(dx * dx + dy * dy);
+        float yaw_err = wrap_deg(target_yaw - own->yaw);
+        if (dist <= RECON_PREP_POS_TOL_M && fabsf(yaw_err) <= RECON_PREP_YAW_TOL_DEG) {
+            char msg[32];
+            snprintf(msg, sizeof(msg), "[R,PREP_OK,%s]", s_own_id);
+            recon_send(msg);
+            s_prep_reported = true;
+            ESP_LOGI(TAG, "PREP OK (rear) dist=%.3f yaw_err=%.1f", dist, yaw_err);
+        }
     }
 }
 
@@ -273,6 +308,7 @@ void recon_mgr_init(const char *own_car_id)
     set_state(RECON_STATE_IDLE);
     clear_order();
     s_last_prep_set_ms = 0;
+    s_prep_reported = false;
     ESP_LOGI(TAG, "init OK, own_id=%s", s_own_id);
 
     recon_mgr_start();
