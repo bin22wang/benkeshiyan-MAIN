@@ -41,6 +41,7 @@ static int s_my_index = -1;
 static char s_leader_id[RECON_CAR_ID_LEN] = {0};
 static uint32_t s_last_prep_set_ms = 0;
 static TaskHandle_t s_task = NULL;
+static TaskHandle_t s_watchdog_task = NULL;
 static bool s_prep_reported = false;
 
 static void recon_notify_display(void);
@@ -54,6 +55,14 @@ static bool recon_send(const char *msg)
         ESP_LOGW(TAG, "send failed: %s", msg);
     }
     return ok;
+}
+
+static void recon_burst_send(const char *msg)
+{
+    for (int i = 0; i < 3; i++) {
+        recon_send(msg);
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
 }
 
 const char *recon_mgr_state_str(recon_state_t state)
@@ -205,7 +214,7 @@ static void handle_step(const char *data)
 
     char msg[32];
     snprintf(msg, sizeof(msg), "[R,STEP_ACK,%s]", s_own_id);
-    recon_send(msg);
+    recon_burst_send(msg);
     set_state(RECON_STATE_GUIDING);
     ESP_LOGI(TAG, "STEP for %s -> STEP_ACK", target);
 }
@@ -241,9 +250,29 @@ static void handle_guide(const char *data)
 
     char msg[32];
     snprintf(msg, sizeof(msg), "[R,STEP_OK,%s]", s_own_id);
-    recon_send(msg);
+    recon_burst_send(msg);
     set_state(RECON_STATE_SUCCESS);
     ESP_LOGI(TAG, "GUIDE DONE -> STEP_OK");
+}
+
+static void recon_watchdog_task(void *pvParameters)
+{
+    (void)pvParameters;
+
+    while (1) {
+        recon_state_t state = recon_mgr_get_state();
+        if (state == RECON_STATE_READY) {
+            char msg[32];
+            snprintf(msg, sizeof(msg), "[R,PREP_OK,%s]", s_own_id);
+            recon_send(msg);
+        } else if (state == RECON_STATE_SUCCESS) {
+            char msg[32];
+            snprintf(msg, sizeof(msg), "[R,STEP_OK,%s]", s_own_id);
+            recon_send(msg);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
 }
 
 static void handle_abort(const char *reason)
@@ -355,6 +384,9 @@ void recon_mgr_init(const char *own_car_id)
     recon_notify_display();
 
     recon_mgr_start();
+    if (s_watchdog_task == NULL) {
+        xTaskCreate(recon_watchdog_task, "recon_wd", 3072, NULL, 3, &s_watchdog_task);
+    }
 }
 
 recon_state_t recon_mgr_get_state(void)
