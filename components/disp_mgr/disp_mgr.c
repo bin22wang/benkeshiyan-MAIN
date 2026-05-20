@@ -176,14 +176,18 @@ static void draw_recon_ui_framework(void)
     const uint16_t max_y = (uint16_t)(LCD_HEIGHT - 1);
 
     lcd_clear(BLACK);
-    hud_draw_line(0, 40, max_x, 40, GRAY);
-    hud_draw_line(0, 41, max_x, 41, DARKBLUE);
-    hud_draw_line(0, 200, max_x, 200, GRAY);
-    hud_draw_line(0, 201, max_x, 201, DARKBLUE);
-    hud_fill(0, 0, 6, 40, CYAN);
-    hud_fill(8, 8, max_x, 30, BLACK);
-    hud_fill(0, 42, max_x, 199, BLACK);
-    hud_fill(0, 202, max_x, max_y, BLACK);
+    hud_fill(0, 0, 6, 34, CYAN);
+    hud_draw_line(0, 34, max_x, 34, GRAY);
+    hud_draw_line(0, 35, max_x, 35, DARKBLUE);
+    lcd_show_string(12, 8, 80, 16, 16, "RECON", WHITE);
+    hud_draw_line(10, 52, max_x - 10, 52, GRAY);
+    hud_draw_line(10, 53, max_x - 10, 53, DARKBLUE);
+    hud_draw_line(10, 186, max_x - 10, 186, GRAY);
+    hud_draw_line(10, 187, max_x - 10, 187, DARKBLUE);
+    hud_draw_line(10, 54, 10, 186, GRAY);
+    hud_draw_line(max_x - 10, 54, max_x - 10, 186, GRAY);
+    hud_draw_line(0, 220, max_x, 220, GRAY);
+    hud_draw_line(0, 221, max_x, 221, DARKBLUE);
 }
 
 static const char *recon_state_text(disp_recon_state_t state)
@@ -219,6 +223,9 @@ static void draw_recon_sequence(void)
     char summary[64] = {0};
     char label[12] = {0};
     size_t used = 0;
+    const uint16_t bar_y = 10;
+    const uint16_t bar_h = 16;
+    const uint16_t cw = LCD_CHAR_W(16);
 
     if (s_current_state.recon_order_count <= 0) {
         strncpy(summary, "NO ORDER", sizeof(summary) - 1);
@@ -240,17 +247,31 @@ static void draw_recon_sequence(void)
     bool owner_changed = hud_text_changed(s_last_recon_owner, sizeof(s_last_recon_owner),
                                           s_current_state.car_id);
     if (hud_text_changed(s_last_recon_order, sizeof(s_last_recon_order), summary) || owner_changed) {
-        hud_fill(8, 8, (uint16_t)(LCD_WIDTH - 9), 30, BLACK);
+        hud_fill(8, 6, (uint16_t)(LCD_WIDTH - 9), 30, BLACK);
     }
 
     if (s_current_state.recon_order_count <= 0) {
-        lcd_show_string(12, 12, 296, 16, 16, summary, GRAY);
+        uint16_t x = (uint16_t)((LCD_WIDTH - (uint16_t)(strlen(summary) * cw)) / 2U);
+        if (x < 12) x = 12;
+        lcd_show_string(x, bar_y, 296, bar_h, 16, summary, GRAY);
         return;
     }
 
+    uint16_t total_w = 0;
+    for (int i = 0; i < s_current_state.recon_order_count; i++) {
+        recon_label_from_car(s_current_state.recon_order[i], label, sizeof(label));
+        total_w = (uint16_t)(total_w + (uint16_t)(strlen(label) * cw));
+        if (i < s_current_state.recon_order_count - 1) {
+            total_w = (uint16_t)(total_w + (uint16_t)(3 * cw));
+        }
+    }
+
     uint16_t x = 12;
-    uint16_t y = 12;
-    uint16_t cw = LCD_CHAR_W(16);
+    if (total_w < LCD_WIDTH) {
+        x = (uint16_t)((LCD_WIDTH - total_w) / 2U);
+        if (x < 12) x = 12;
+    }
+    uint16_t y = bar_y;
     for (int i = 0; i < s_current_state.recon_order_count; i++) {
         recon_label_from_car(s_current_state.recon_order[i], label, sizeof(label));
         uint16_t color = WHITE;
@@ -258,10 +279,10 @@ static void draw_recon_sequence(void)
             strcmp(s_current_state.recon_order[i], s_current_state.car_id) == 0) {
             color = RGB565_GREEN;
         }
-        lcd_show_string(x, y, 120, 16, 16, label, color);
+        lcd_show_string(x, y, 120, bar_h, 16, label, color);
         x = (uint16_t)(x + cw * strlen(label));
         if (i < s_current_state.recon_order_count - 1) {
-            lcd_show_string(x, y, 40, 16, 16, " - ", GRAY);
+            lcd_show_string(x, y, 40, bar_h, 16, " - ", GRAY);
             x = (uint16_t)(x + cw * 3);
         }
     }
@@ -391,9 +412,18 @@ static void disp_refresh_task(void *pvParameters)
         } else if (s_current_page == DISP_PAGE_RECON) {
             const char *state_text = recon_state_text(s_current_state.recon_state);
             if (hud_text_changed(s_last_recon_state, sizeof(s_last_recon_state), state_text)) {
-                hud_fill(0, 70, (uint16_t)(LCD_WIDTH - 1), 160, BLACK);
-                lcd_show_string(40, 90, 240, 60, 40, (char *)state_text, GRAY);
-                lcd_show_string(41, 90, 240, 60, 40, (char *)state_text, GRAY);
+                const uint16_t box_x0 = 18;
+                const uint16_t box_y0 = 70;
+                const uint16_t box_x1 = (uint16_t)(LCD_WIDTH - 19);
+                const uint16_t box_y1 = 170;
+                hud_fill(box_x0, box_y0, box_x1, box_y1, BLACK);
+                uint16_t text_w = (uint16_t)(strlen(state_text) * LCD_CHAR_W(40));
+                uint16_t text_x = 40;
+                if (text_w < 240) {
+                    text_x = (uint16_t)((LCD_WIDTH - text_w) / 2U);
+                }
+                lcd_show_string(text_x, 96, 240, 60, 40, (char *)state_text, GRAY);
+                lcd_show_string((uint16_t)(text_x + 1), 96, 240, 60, 40, (char *)state_text, GRAY);
             }
             draw_recon_sequence();
         } else if (s_current_page == DISP_PAGE_CAMERA) {

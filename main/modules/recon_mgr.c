@@ -38,6 +38,7 @@ static char s_order[RECON_ORDER_LEN][RECON_CAR_ID_LEN] = {{0}};
 static int s_order_count = 0;
 static bool s_order_valid = false;
 static int s_my_index = -1;
+static char s_leader_id[RECON_CAR_ID_LEN] = {0};
 static uint32_t s_last_prep_set_ms = 0;
 static TaskHandle_t s_task = NULL;
 static bool s_prep_reported = false;
@@ -108,6 +109,7 @@ static void clear_order(void)
     s_order_count = 0;
     s_order_valid = false;
     s_my_index = -1;
+    s_leader_id[0] = '\0';
 }
 
 static int find_order_index(const char *car_id)
@@ -166,6 +168,10 @@ static void handle_order(const char *data)
 
     s_order_valid = (s_order_count > 0);
     s_my_index = find_order_index(s_own_id);
+    if (s_order_count > 0) {
+        strncpy(s_leader_id, s_order[0], RECON_CAR_ID_LEN - 1);
+        s_leader_id[RECON_CAR_ID_LEN - 1] = '\0';
+    }
 
     ESP_LOGI(TAG, "ORDER set (%d entries)", s_order_count);
     recon_notify_display();
@@ -274,17 +280,22 @@ static void recon_handle_preparing(void)
         return;
     }
 
-    const char *front_id = s_order[s_my_index - 1];
-    const proto_car_state_t *front = proto_get_car_state(front_id);
-    if (!front || !front->valid) {
+    if (s_leader_id[0] == '\0') {
         vel_solver_stop();
         return;
     }
 
-    float front_yaw_rad = front->yaw * (float)M_PI / 180.0f;
-    float target_x = front->x - cosf(front_yaw_rad) * RECON_PREP_SPACING_M;
-    float target_y = front->y - sinf(front_yaw_rad) * RECON_PREP_SPACING_M;
-    float target_yaw = front->yaw;
+    const proto_car_state_t *leader = proto_get_car_state(s_leader_id);
+    if (!leader || !leader->valid) {
+        vel_solver_stop();
+        return;
+    }
+
+    float leader_yaw_rad = leader->yaw * (float)M_PI / 180.0f;
+    float spacing = RECON_PREP_SPACING_M * (float)s_my_index;
+    float target_x = leader->x - cosf(leader_yaw_rad) * spacing;
+    float target_y = leader->y - sinf(leader_yaw_rad) * spacing;
+    float target_yaw = leader->yaw;
 
     float dx = target_x - own->x;
     float dy = target_y - own->y;
