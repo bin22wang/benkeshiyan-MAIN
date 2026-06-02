@@ -37,8 +37,13 @@ void formation_calc_follower_vel(float L_x,
 
     // 从领航者坐标系下的目标位置映射到全局坐标系的位置
     /* Step 1: target pose in global frame. */
+#if FORMATION_OFFSET_MODE_GLOBAL
+    float T_x = L_x + offset_x;
+    float T_y = L_y + offset_y;
+#else
     float T_x = L_x + offset_x * cosf(L_yaw) - offset_y * sinf(L_yaw);
     float T_y = L_y + offset_x * sinf(L_yaw) + offset_y * cosf(L_yaw);
+#endif
     float T_yaw = wrap_deg(L_yaw_deg + offset_yaw_deg);
     
     // 计算映射后的全局坐标系下的位置误差，并进行 PD 控制，得到速度指令

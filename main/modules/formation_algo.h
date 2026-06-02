@@ -15,6 +15,9 @@ extern "C" {
 #define FORMATION_STILL_COUNT          4      // 连续多少帧（50Hz）低于运动阈值则认为编队静止，重置 PID 状态
 #define FORMATION_YAW_KP               0.05f  // 航向误差比例增益（直接乘以误差得到角速度指令）
 
+/* 1: 全局坐标系偏移, 0: 领航者局部坐标系偏移 */
+#define FORMATION_OFFSET_MODE_GLOBAL   1
+
 typedef struct {
     float target_vx;
     float target_vy;
