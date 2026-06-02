@@ -43,6 +43,14 @@ static float s_manual_vx = 0.0f;
 static float s_manual_vy = 0.0f;
 static float s_manual_vz = 0.0f;
 
+/* 轨迹速度（VEL_MODE_TRAJECTORY 模式） */
+static float s_traj_vx = 0.0f;
+static float s_traj_vy = 0.0f;
+static float s_traj_target_yaw = 0.0f;
+static uint32_t s_traj_last_cmd_ms = 0;
+
+#define VEL_SOLVER_TRAJ_TIMEOUT_MS    500
+
 /* yaw PID */ 
 static float    s_yaw_integral     = 0.0f;
 static float    s_last_yaw_error   = 0.0f;
@@ -54,6 +62,11 @@ static float clamp_float(float value, float low, float high)
     if (value < low) return low;
     if (value > high) return high;
     return value;
+}
+
+static uint32_t now_ms(void)
+{
+    return (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
 }
 
 static void reset_control_state(void)
@@ -122,6 +135,7 @@ void vel_solver_init(void)
     memset(&s_own, 0, sizeof(s_own));
     memset(&s_output, 0, sizeof(s_output));
     s_mode = VEL_MODE_IDLE;
+    s_traj_last_cmd_ms = 0;
     reset_control_state();
 }
 
@@ -198,6 +212,18 @@ void vel_solver_set_manual_speed(float target_vx, float target_vy, float target_
     ESP_LOGI(TAG, "set manual speed (%.3f, %.3f, %.3f)", target_vx, target_vy, target_vz);
 }
 
+void vel_solver_set_trajectory_cmd(float target_vx, float target_vy, float target_yaw)
+{
+    s_traj_vx = target_vx;
+    s_traj_vy = target_vy;
+    s_traj_target_yaw = target_yaw;
+    s_traj_last_cmd_ms = now_ms();
+    s_mode = VEL_MODE_TRAJECTORY;
+    reset_control_state();
+    ESP_LOGI(TAG, "set trajectory cmd (vx=%.3f, vy=%.3f, yaw=%.1f)",
+             target_vx, target_vy, target_yaw);
+}
+
 void vel_solver_stop(void)
 {
     s_mode = VEL_MODE_IDLE;
@@ -238,6 +264,18 @@ bool vel_solver_compute(vel_output_t *out)
     if (!out) return false;
     memset(out, 0, sizeof(*out));
 
+    if (s_mode == VEL_MODE_TRAJECTORY) {
+        uint32_t now = now_ms();
+        if ((now - s_traj_last_cmd_ms) > VEL_SOLVER_TRAJ_TIMEOUT_MS) {
+            s_output.target_vx = 0.0f;
+            s_output.target_vy = 0.0f;
+            s_output.target_vz = 0.0f;
+            s_output.valid = true;
+            *out = s_output;
+            return true;
+        }
+    }
+
     if (!own_state_ready()) return false;
 
     float control_vx = 0.0f;
@@ -254,6 +292,10 @@ bool vel_solver_compute(vel_output_t *out)
         control_vx = s_manual_vx;
         control_vy = s_manual_vy;
         control_vz = s_manual_vz;
+    } else if (s_mode == VEL_MODE_TRAJECTORY) {
+        control_vx = s_traj_vx;
+        control_vy = s_traj_vy;
+        control_vz = yaw_pid_control(s_own.yaw, s_traj_target_yaw);
     } else if (s_mode == VEL_MODE_POSITION) {
         /* Auto_Adjust_Position_And_Yaw 对齐实现 */
         float error_x = s_target_x - s_own.x;

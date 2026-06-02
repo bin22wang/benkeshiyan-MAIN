@@ -19,8 +19,9 @@
  * │  7   │ [F,F,CAR1,0.5,0.0,0.0]       │ 设置为 Follower + 偏移量     │
  * │  8   │ [F,U,CAR1,0.3,0.2,0.0]       │ 更新跟随偏移量               │
  * │  9   │ [3 C1 x y yaw vx vy vz ...]  │ 广播全场车辆状态             │
- * │  10  │ TOPOLOGY:0,1;1,0;...         │ 旧版拓扑矩阵（兼容）          │
- * │  11  │ TOPOLOGY_TOGGLE:True         │ 旧版拓扑使能切换（兼容）      │
+ * │  10  │ [T,CAR1,vx,vy,yaw]           │ 轨迹速度指令                  │
+ * │  11  │ TOPOLOGY:0,1;1,0;...         │ 旧版拓扑矩阵（兼容）          │
+ * │  12  │ TOPOLOGY_TOGGLE:True         │ 旧版拓扑使能切换（兼容）      │
  * └──────┴──────────────────────────────┴──────────────────────────────┘
  *
  * ====== 后续开发说明 ======
@@ -112,6 +113,40 @@ static bool recon_filter_controls(void)
 {
     recon_state_t state = recon_mgr_get_state();
     return state != RECON_STATE_IDLE;
+}
+
+/* -----------------------------------------------------------------------
+ * 消息类型 10：轨迹速度指令
+ * 格式：[T,CARn,vx,vy,target_yaw]
+ *   CARn       - 目标车辆 ID（只处理发给本车的）
+ *   vx,vy      - 线速度（m/s）
+ *   target_yaw - 目标航向角（度）
+ * ---------------------------------------------------------------------- */
+static void parse_trajectory_cmd(const char *data)
+{
+    if (recon_filter_controls()) {
+        ESP_LOGW(TAG, "[TRAJ] ignored during recon: %s", data);
+        return;
+    }
+
+    char  target[PROTO_CAR_ID_LEN];
+    float vx, vy, yaw;
+
+    int n = sscanf(data, "[T,%9[^,],%f,%f,%f]", target, &vx, &vy, &yaw);
+    if (n != 4) {
+        ESP_LOGW(TAG, "[TRAJ] parse failed: %s", data);
+        return;
+    }
+
+    if (strcmp(target, s_own_id) != 0) {
+        ESP_LOGD(TAG, "[TRAJ] for %s (not us, skip)", target);
+        return;
+    }
+
+    ESP_LOGI(TAG, "[TRAJ] target=%s  vel=(%.3f, %.3f) yaw=%.1f",
+             target, vx, vy, yaw);
+
+    vel_solver_set_trajectory_cmd(vx, vy, yaw);
 }
 
 /* ========================================================================
@@ -401,6 +436,11 @@ static void parse_topology(const char *data)
         } else {
             ESP_LOGW(TAG, "[TOPO_MATRIX] parse failed (got %d/16 fields)", n);
         }
+        return;
+    }
+
+    if (data[0] == '[' && data[1] == 'T' && data[2] == ',') {
+        parse_trajectory_cmd(data);
         return;
     }
 

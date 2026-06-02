@@ -16,7 +16,8 @@ typedef enum {
     SYS_MODE_IDLE = 0,    // Displayed as STANDBY
     SYS_MODE_LEADER,      // Displayed as VANGUARD
     SYS_MODE_FOLLOW,      // Displayed as WINGMAN
-    SYS_MODE_MANUAL       // Displayed as OVERRIDE
+    SYS_MODE_MANUAL,      // Displayed as OVERRIDE
+    SYS_MODE_AUTO         // Displayed as AUTO
 } sys_mode_t;
 
 typedef enum {

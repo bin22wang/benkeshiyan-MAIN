@@ -17,8 +17,9 @@
  *  7. Formation follower       [F,F,CARn,off_x,off_y,off_yaw]
  *  8. Formation offset update  [F,U,CARn,off_x,off_y,off_yaw]
  *  9. Broadcast car state      [N C1 x y yaw vx vy vz C2 ...]
- * 10. Legacy topology matrix   TOPOLOGY:r0c0,r0c1,...;r1c0,...
- * 11. Legacy topology toggle   TOPOLOGY_TOGGLE:True|False
+ * 10. Trajectory command       [T,CARn,vx,vy,target_yaw]
+ * 11. Legacy topology matrix   TOPOLOGY:r0c0,r0c1,...;r1c0,...
+ * 12. Legacy topology toggle   TOPOLOGY_TOGGLE:True|False
  */
 
 #pragma once

@@ -22,6 +22,14 @@
  *    └─ 算法：PD 位置控制 + 速度前馈混合（自适应切换）
  *    └─ 对应 STM32: Formation_Follower_Control()
  *
+ *  模式 3：手动遥控（对应 [M,CARn,vx,vy,vz] 指令）
+ *    └─ 输入：上位机速度
+ *    └─ 算法：速度透传
+ *
+ *  模式 4：轨迹速度（对应 [T,CARn,vx,vy,target_yaw] 指令）
+ *    └─ 输入：上位机速度 + 本地航向
+ *    └─ 算法：vx/vy 透传 + 本地 yaw P 控制
+ *
  * ====== 依赖说明 ======
  * 本模块需要本车实时位姿作为反馈量（x, y, yaw, vx, vy, vz）。
  * 该数据来源：STM32 → ESP32 UART（uart_bridge 模块桥接后填入）。
@@ -126,6 +134,7 @@ typedef enum {
     VEL_MODE_POSITION   = 1, /**< 位姿闭环（移动指令 / Leader 自主导航）   */
     VEL_MODE_FOLLOWER   = 2, /**< 编队 Follower 控制                       */
     VEL_MODE_MANUAL     = 3, /**< 手动遥控（前端键盘直接下发速度透传）      */
+    VEL_MODE_TRAJECTORY = 4, /**< 轨迹速度（上位机 vx/vy + 本地 yaw 控制） */
 } vel_solver_mode_t;
 
 /**
@@ -257,6 +266,17 @@ void vel_solver_stop(void);
  * @param target_vz  期望角速度 Z（归一化 [-1,1]）
  */
 void vel_solver_set_manual_speed(float target_vx, float target_vy, float target_vz);
+
+/**
+ * @brief 设置轨迹速度目标（对应 [T,CARn,vx,vy,target_yaw] 指令）。
+ *
+ * 调用后进入 VEL_MODE_TRAJECTORY 模式：vx/vy 透传，yaw 由本地 P 控制。
+ *
+ * @param target_vx   期望线速度 X（m/s，车头朝前为正）
+ * @param target_vy   期望线速度 Y（m/s，车头朝左为正）
+ * @param target_yaw  期望航向角（度）
+ */
+void vel_solver_set_trajectory_cmd(float target_vx, float target_vy, float target_yaw);
 
 /* ========================================================================
  * 解算入口 API

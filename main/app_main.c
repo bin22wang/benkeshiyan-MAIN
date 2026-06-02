@@ -305,6 +305,8 @@ static sys_mode_t resolve_display_mode(vel_solver_mode_t mode)
             return SYS_MODE_FOLLOW;
         case VEL_MODE_MANUAL:
             return SYS_MODE_MANUAL;
+        case VEL_MODE_TRAJECTORY:
+            return SYS_MODE_AUTO;
         case VEL_MODE_POSITION:
         default:
             return SYS_MODE_MANUAL;

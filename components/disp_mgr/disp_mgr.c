@@ -380,6 +380,10 @@ static void disp_refresh_task(void *pvParameters)
                             center_text = "CTRL";
                             center_x = 100;
                             break;
+                        case SYS_MODE_AUTO:
+                            center_text = "TRAJ";
+                            center_x = 100;
+                            break;
                         default:
                             center_text = "UNKN";
                             center_x = 100;
