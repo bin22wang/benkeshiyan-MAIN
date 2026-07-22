@@ -43,6 +43,12 @@ static uint32_t s_last_prep_set_ms = 0;
 static TaskHandle_t s_task = NULL;
 static TaskHandle_t s_watchdog_task = NULL;
 static bool s_prep_reported = false;
+static bool s_done_acked = false;   // 收到 [R,DONE] 后置位，停止看门狗继续重复上报 STEP_OK
+
+// --- 重构下行收包诊断（供 RECON 页地面排障显示）---
+static uint32_t s_rx_total = 0;   // 累计收到的 [R,*] 下行指令条数
+static uint32_t s_rx_self = 0;    // 其中点名本车的条数
+static char s_last_cmd_label[12] = {0};  // 最近一条点名本车的指令短标签
 
 static void recon_notify_display(void);
 
@@ -136,6 +142,7 @@ static void handle_prep(void)
     set_state(RECON_STATE_PREPARING);
     s_last_prep_set_ms = 0;
     s_prep_reported = false;
+    s_done_acked = false;   // 新一轮重构开始，允许后续再次上报 STEP_OK
     vel_solver_stop();
 
     ESP_LOGI(TAG, "PREP received -> wait for target before PREP_OK");
@@ -188,18 +195,22 @@ static void handle_order(const char *data)
 
 static void handle_asm_start(void)
 {
-    if (s_state != RECON_STATE_READY && s_state != RECON_STATE_SUCCESS) {
+    // 幂等/宽容处理：ASM_START 是不可靠广播，可能整段丢失或早于本地切到 READY 到达。
+    //   - 已在 ASSEMBLING/GUIDING：重复广播，忽略即可（不打断当前握手/制导）。
+    //   - 已 SUCCESS：本车已完成对接，绝不能被重复广播拖回 ASSEMBLING。
+    //   - 其余（IDLE/PREPARING/READY）：一律进入 ASSEMBLING，等待本车的 STEP。
+    if (s_state == RECON_STATE_ASSEMBLING || s_state == RECON_STATE_GUIDING ||
+        s_state == RECON_STATE_SUCCESS) {
         return;
     }
     set_state(RECON_STATE_ASSEMBLING);
     vel_solver_stop();
-    ESP_LOGI(TAG, "ASM_START received -> ASSEMBLING");
+    ESP_LOGI(TAG, "ASM_START received -> ASSEMBLING (from prior state)");
 }
 
 static void handle_step(const char *data)
 {
     if (!data) return;
-    if (s_state != RECON_STATE_ASSEMBLING) return;
 
     char target[RECON_CAR_ID_LEN] = {0};
     int n = sscanf(data, "[R,STEP,%9[^,]", target);
@@ -209,14 +220,24 @@ static void handle_step(const char *data)
     }
 
     if (strcmp(target, s_own_id) != 0) {
-        return;
+        return;  // 不是发给自己的 STEP，忽略
     }
 
+    // 幂等处理（关键修复）：只要目标是自己，无论当前处于 READY / ASSEMBLING / GUIDING，
+    // 都重新回一次 STEP_ACK。
+    //   1) 若之前的 STEP_ACK 上行丢包、服务器重发 STEP，此处仍会再次应答，
+    //      从根本上消除“服务器重发 STEP 但小车已切到 GUIDING 而不再回应”的握手死锁；
+    //   2) 若 ASM_START 广播整段丢失、小车还停在 READY，此处也能凭 STEP 直接补进组装，
+    //      不再因 s_state != ASSEMBLING 而静默丢弃 STEP。
+    // 注意：仅在“未完成对接(SUCCESS)”时才切到 GUIDING，避免已完成的车被重发 STEP 拖回制导。
     char msg[32];
     snprintf(msg, sizeof(msg), "[R,STEP_ACK,%s]", s_own_id);
     recon_burst_send(msg);
-    set_state(RECON_STATE_GUIDING);
-    ESP_LOGI(TAG, "STEP for %s -> STEP_ACK", target);
+
+    if (s_state != RECON_STATE_SUCCESS) {
+        set_state(RECON_STATE_GUIDING);
+    }
+    ESP_LOGI(TAG, "STEP for %s -> STEP_ACK (state=%s)", target, recon_mgr_state_str(s_state));
 }
 
 static void handle_guide(const char *data)
@@ -240,6 +261,9 @@ static void handle_guide(const char *data)
     if (strcmp(target, s_own_id) != 0) {
         return;
     }
+
+    // 把最近一次制导速度刷到 RECON 调试页（fresh=true 表示刚收到）
+    disp_mgr_update_recon_guide(vx, vy, vz, true);
 
     if (done == 0) {
         vel_solver_set_manual_speed(vx, vy, vz);
@@ -265,7 +289,9 @@ static void recon_watchdog_task(void *pvParameters)
             char msg[32];
             snprintf(msg, sizeof(msg), "[R,PREP_OK,%s]", s_own_id);
             recon_send(msg);
-        } else if (state == RECON_STATE_SUCCESS) {
+        } else if (state == RECON_STATE_SUCCESS && !s_done_acked) {
+            // 仅在服务器尚未确认整体完成([R,DONE])前重复上报 STEP_OK；
+            // 收到 [R,DONE] 后停止，避免完成后仍无休止地向服务器灌 STEP_OK。
             char msg[32];
             snprintf(msg, sizeof(msg), "[R,STEP_OK,%s]", s_own_id);
             recon_send(msg);
@@ -281,6 +307,7 @@ static void handle_abort(const char *reason)
     vel_solver_stop();
     clear_order();
     s_prep_reported = false;
+    s_done_acked = false;
     set_state(RECON_STATE_IDLE);
 }
 
@@ -379,6 +406,7 @@ void recon_mgr_init(const char *own_car_id)
     clear_order();
     s_last_prep_set_ms = 0;
     s_prep_reported = false;
+    s_done_acked = false;
     ESP_LOGI(TAG, "init OK, own_id=%s", s_own_id);
 
     recon_notify_display();
@@ -394,33 +422,73 @@ recon_state_t recon_mgr_get_state(void)
     return s_state;
 }
 
+// 统计一条下行重构指令，并按“是否点名本车”更新诊断计数与最近指令标签，
+// 最后刷新到 RECON 调试页。这样地面测试无需串口即可判断：
+//   rx_total 在涨 = 下行链路(广播)确实到达本车；
+//   rx_self  在涨 = 服务器确实在点名本车（STEP/GUIDE 等）。
+static void recon_diag_count(const char *short_label, bool for_self)
+{
+    s_rx_total++;
+    if (for_self) {
+        s_rx_self++;
+        if (short_label) {
+            strncpy(s_last_cmd_label, short_label, sizeof(s_last_cmd_label) - 1);
+            s_last_cmd_label[sizeof(s_last_cmd_label) - 1] = '\0';
+        }
+    }
+    disp_mgr_update_recon_rx(s_rx_total, s_rx_self, s_last_cmd_label);
+}
+
+// 判断一条 [R,CMD,CARx,...] 指令点名的目标是否为本车。
+static bool recon_cmd_targets_self(const char *data, const char *prefix)
+{
+    char target[RECON_CAR_ID_LEN] = {0};
+    char fmt[24];
+    snprintf(fmt, sizeof(fmt), "%s%%9[^,]", prefix);  // 如 "[R,STEP,%9[^,]"
+    if (sscanf(data, fmt, target) != 1) return false;
+    return strcmp(target, s_own_id) == 0;
+}
+
 void recon_mgr_handle_message(const char *data, size_t len)
 {
     if (!data || len < 4) return;
     if (data[0] != '[' || data[1] != 'R' || data[2] != ',') return;
 
     if (strncmp(data, "[R,PREP]", 8) == 0) {
+        recon_diag_count("PREP", true);   // 全体广播，对本车有效
         handle_prep();
         return;
     }
     if (strncmp(data, "[R,ORDER,", 9) == 0) {
+        recon_diag_count("ORDER", true);
         handle_order(data);
         return;
     }
     if (strncmp(data, "[R,ASM_START]", 13) == 0) {
+        recon_diag_count("ASM", true);
         handle_asm_start();
         return;
     }
     if (strncmp(data, "[R,STEP,", 8) == 0) {
+        recon_diag_count("STEP", recon_cmd_targets_self(data, "[R,STEP,"));
         handle_step(data);
         return;
     }
     if (strncmp(data, "[R,GUIDE,", 9) == 0) {
+        recon_diag_count("GUIDE", recon_cmd_targets_self(data, "[R,GUIDE,"));
         handle_guide(data);
         return;
     }
     if (strncmp(data, "[R,ABORT]", 9) == 0) {
+        recon_diag_count("ABORT", true);
         handle_abort("ABORT");
+        return;
+    }
+    if (strncmp(data, "[R,DONE]", 8) == 0) {
+        // 整体拼接完成：停止 STEP_OK 重复上报（看门狗据此判据），保持已对接状态。
+        recon_diag_count("DONE", true);
+        s_done_acked = true;
+        ESP_LOGI(TAG, "DONE received -> stop STEP_OK spam");
         return;
     }
 

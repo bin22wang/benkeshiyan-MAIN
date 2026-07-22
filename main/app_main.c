@@ -47,7 +47,9 @@ static sys_mode_t s_role_mode = SYS_MODE_IDLE;
 
 /* ========== UDP 通信配置 ========== */
 /** 服务器 IP 地址 */
-#define SERVER_IP       "192.168.31.46"
+//#define SERVER_IP       "192.168.31.46" // 白瑞
+#define SERVER_IP       "192.168.31.91" // 王斌 
+//#define SERVER_IP       "192.168.31.234" // 王浩
 /** 服务器监听端口（ESP32 向此端口发送数据） */
 #define SERVER_PORT     8080
 /** 本地绑定端口（ESP32 在此端口接收服务器数据） */

@@ -26,6 +26,9 @@
 #define WIFI_SSID        "Xiaomi_1010"
 /** 目标 AP 的密码 */
 #define WIFI_PASSWORD    "12345678"
+
+
+
 /** 最大重连次数，超过后置 FAIL 标志并放弃 */
 #define WIFI_MAX_RETRY   10
 

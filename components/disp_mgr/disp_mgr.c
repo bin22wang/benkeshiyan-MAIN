@@ -39,6 +39,15 @@ typedef struct {
     disp_recon_state_t recon_state;
     char recon_order[4][10];
     int recon_order_count;
+    // --- 重构诊断（RECON 页地面排障用）---
+    uint32_t recon_rx_total;   // 累计收到的下行重构指令条数
+    uint32_t recon_rx_self;    // 其中点名本车的条数
+    char recon_last_cmd[12];   // 最近一条与本车相关的指令短标签
+    float recon_vx;            // 最近制导速度
+    float recon_vy;
+    float recon_vz;
+    bool recon_guide_fresh;    // 制导是否新鲜（1s 内）
+    uint32_t recon_guide_ms;   // 最近一次制导速度更新时刻（用于自动判定新鲜度过期）
 } disp_state_t;
 
 static disp_state_t s_current_state = {0};
@@ -61,6 +70,9 @@ static char s_last_cam_conf[16] = {0};
 static char s_last_recon_state[16] = {0};
 static char s_last_recon_order[64] = {0};
 static char s_last_recon_owner[16] = {0};
+static char s_last_recon_rx[24] = {0};
+static char s_last_recon_cmd[20] = {0};
+static char s_last_recon_vel[28] = {0};
 
 
 static void hud_draw_point(uint16_t x, uint16_t y, uint16_t color)
@@ -134,6 +146,9 @@ static void hud_reset_cache(void)
     s_last_recon_state[0] = '\0';
     s_last_recon_order[0] = '\0';
     s_last_recon_owner[0] = '\0';
+    s_last_recon_rx[0] = '\0';
+    s_last_recon_cmd[0] = '\0';
+    s_last_recon_vel[0] = '\0';
 }
 
 // Draw the static borders and texts only once to save CPU time
@@ -173,21 +188,26 @@ static void draw_status_ui_framework(void)
 static void draw_recon_ui_framework(void)
 {
     const uint16_t max_x = (uint16_t)(LCD_WIDTH - 1);
-    const uint16_t max_y = (uint16_t)(LCD_HEIGHT - 1);
 
     lcd_clear(BLACK);
+    // 顶栏（标题）Y:0~34
     hud_fill(0, 0, 6, 34, CYAN);
     hud_draw_line(0, 34, max_x, 34, GRAY);
     hud_draw_line(0, 35, max_x, 35, DARKBLUE);
-    lcd_show_string(12, 8, 80, 16, 16, "RECON", WHITE);
-    hud_draw_line(10, 52, max_x - 10, 52, GRAY);
-    hud_draw_line(10, 53, max_x - 10, 53, DARKBLUE);
-    hud_draw_line(10, 186, max_x - 10, 186, GRAY);
-    hud_draw_line(10, 187, max_x - 10, 187, DARKBLUE);
-    hud_draw_line(10, 54, 10, 186, GRAY);
-    hud_draw_line(max_x - 10, 54, max_x - 10, 186, GRAY);
-    hud_draw_line(0, 220, max_x, 220, GRAY);
-    hud_draw_line(0, 221, max_x, 221, DARKBLUE);
+    lcd_show_string(12, 9, 160, 16, 16, "RECON DIAG", WHITE);
+
+    // 状态大字区 Y:40~86，下方分隔线 Y:90
+    hud_draw_line(10, 90, max_x - 10, 90, GRAY);
+    hud_draw_line(10, 91, max_x - 10, 91, DARKBLUE);
+
+    // 诊断三行静态标签（与描画行同一 Y 基线）：RX / LAST / VEL
+    lcd_show_string(12, 100, 48, 16, 16, "RX:", GRAY);
+    lcd_show_string(12, 130, 48, 16, 16, "LAST:", GRAY);
+    lcd_show_string(12, 160, 48, 16, 16, "VEL:", GRAY);
+
+    // 底部顺序条分隔线 Y:190
+    hud_draw_line(10, 190, max_x - 10, 190, GRAY);
+    hud_draw_line(10, 191, max_x - 10, 191, DARKBLUE);
 }
 
 static const char *recon_state_text(disp_recon_state_t state)
@@ -223,7 +243,7 @@ static void draw_recon_sequence(void)
     char summary[64] = {0};
     char label[12] = {0};
     size_t used = 0;
-    const uint16_t bar_y = 10;
+    const uint16_t bar_y = 198;   // 底部顺序条基线（分隔线 Y:190 之下）
     const uint16_t bar_h = 16;
     const uint16_t cw = LCD_CHAR_W(16);
 
@@ -247,7 +267,7 @@ static void draw_recon_sequence(void)
     bool owner_changed = hud_text_changed(s_last_recon_owner, sizeof(s_last_recon_owner),
                                           s_current_state.car_id);
     if (hud_text_changed(s_last_recon_order, sizeof(s_last_recon_order), summary) || owner_changed) {
-        hud_fill(8, 6, (uint16_t)(LCD_WIDTH - 9), 30, BLACK);
+        hud_fill(8, (uint16_t)(bar_y - 2), (uint16_t)(LCD_WIDTH - 9), (uint16_t)(bar_y + bar_h + 2), BLACK);
     }
 
     if (s_current_state.recon_order_count <= 0) {
@@ -414,21 +434,59 @@ static void disp_refresh_task(void *pvParameters)
                 hud_draw_text_region(225, 185, 90, 24, 24, str_buf, YELLOW);
             }
         } else if (s_current_page == DISP_PAGE_RECON) {
+            // === 状态大字（居中，Y:46~86，字号32）===
             const char *state_text = recon_state_text(s_current_state.recon_state);
             if (hud_text_changed(s_last_recon_state, sizeof(s_last_recon_state), state_text)) {
-                const uint16_t box_x0 = 18;
-                const uint16_t box_y0 = 70;
-                const uint16_t box_x1 = (uint16_t)(LCD_WIDTH - 19);
-                const uint16_t box_y1 = 170;
-                hud_fill(box_x0, box_y0, box_x1, box_y1, BLACK);
-                uint16_t text_w = (uint16_t)(strlen(state_text) * LCD_CHAR_W(40));
-                uint16_t text_x = 40;
-                if (text_w < 240) {
+                hud_fill(10, 42, (uint16_t)(LCD_WIDTH - 11), 86, BLACK);
+                uint16_t text_w = (uint16_t)(strlen(state_text) * LCD_CHAR_W(32));
+                uint16_t text_x = 12;
+                if (text_w < 296) {
                     text_x = (uint16_t)((LCD_WIDTH - text_w) / 2U);
                 }
-                lcd_show_string(text_x, 96, 240, 60, 40, (char *)state_text, GRAY);
-                lcd_show_string((uint16_t)(text_x + 1), 96, 240, 60, 40, (char *)state_text, GRAY);
+                uint16_t st_color = GRAY;
+                if (s_current_state.recon_state == DISP_RECON_GUIDING) st_color = YELLOW;
+                else if (s_current_state.recon_state == DISP_RECON_SUCCESS) st_color = UI_GREEN;
+                else if (s_current_state.recon_state == DISP_RECON_READY) st_color = CYAN;
+                lcd_show_string(text_x, 46, 296, 40, 32, (char *)state_text, st_color);
+                lcd_show_string((uint16_t)(text_x + 1), 46, 296, 40, 32, (char *)state_text, st_color);
             }
+
+            // === RX 计数 + 点名本车计数（值区 Y:100，标签 RX: 已在框架中画好）===
+            // 关键排障点：RX 若一直为 0 -> 下行链路根本没通；RX 涨但 ME 不涨 -> 收到了但没点名本车。
+            snprintf(str_buf, sizeof(str_buf), "%lu  ME:%lu",
+                     (unsigned long)s_current_state.recon_rx_total,
+                     (unsigned long)s_current_state.recon_rx_self);
+            if (hud_text_changed(s_last_recon_rx, sizeof(s_last_recon_rx), str_buf)) {
+                uint16_t rx_color = (s_current_state.recon_rx_total > 0) ? WHITE : UI_RED;
+                hud_draw_text_region(60, 100, (uint16_t)(LCD_WIDTH - 66), 16, 16, str_buf, rx_color);
+            }
+
+            // === 最近一条与本车相关的指令（值区 Y:130，标签 LAST: 已在框架中）===
+            snprintf(str_buf, sizeof(str_buf), "%s",
+                     s_current_state.recon_last_cmd[0] ? s_current_state.recon_last_cmd : "--");
+            if (hud_text_changed(s_last_recon_cmd, sizeof(s_last_recon_cmd), str_buf)) {
+                hud_draw_text_region(60, 130, (uint16_t)(LCD_WIDTH - 66), 16, 16, str_buf, CYAN);
+            }
+
+            // === 制导速度（值区 Y:160，标签 VEL: 已在框架中）===
+            // GUIDING 期间若这里一直是 0 或不新鲜 -> 服务器制导没下来/车没在动。
+            // 新鲜度按“最近更新时刻 1s 内”自动判定：即使 GUIDE 中断也会自动回落到 "--"。
+            if (s_current_state.recon_guide_fresh &&
+                (current_time - s_current_state.recon_guide_ms) > 1000U) {
+                s_current_state.recon_guide_fresh = false;
+            }
+            if (s_current_state.recon_guide_fresh) {
+                snprintf(str_buf, sizeof(str_buf), "%+.2f %+.2f %+.2f",
+                         s_current_state.recon_vx, s_current_state.recon_vy, s_current_state.recon_vz);
+            } else {
+                snprintf(str_buf, sizeof(str_buf), "--  --  --");
+            }
+            if (hud_text_changed(s_last_recon_vel, sizeof(s_last_recon_vel), str_buf)) {
+                uint16_t v_color = s_current_state.recon_guide_fresh ? UI_GREEN : GRAY;
+                hud_draw_text_region(60, 160, (uint16_t)(LCD_WIDTH - 66), 16, 16, str_buf, v_color);
+            }
+
+            // === 顺序条（底部 Y:198）===
             draw_recon_sequence();
         } else if (s_current_page == DISP_PAGE_CAMERA) {
             const uint16_t top_y = 10;
@@ -546,6 +604,29 @@ void disp_mgr_update_recon(const char *own_car_id,
             s_current_state.recon_order[i][sizeof(s_current_state.recon_order[i]) - 1] = '\0';
         }
         s_current_state.recon_order_count = count;
+    }
+}
+
+void disp_mgr_update_recon_rx(uint32_t rx_total, uint32_t rx_self, const char *last_cmd)
+{
+    s_current_state.recon_rx_total = rx_total;
+    s_current_state.recon_rx_self = rx_self;
+    if (last_cmd && last_cmd[0] != '\0') {
+        strncpy(s_current_state.recon_last_cmd, last_cmd, sizeof(s_current_state.recon_last_cmd) - 1);
+        s_current_state.recon_last_cmd[sizeof(s_current_state.recon_last_cmd) - 1] = '\0';
+    }
+}
+
+void disp_mgr_update_recon_guide(float vx, float vy, float vz, bool fresh)
+{
+    s_current_state.recon_vx = vx;
+    s_current_state.recon_vy = vy;
+    s_current_state.recon_vz = vz;
+    s_current_state.recon_guide_fresh = fresh;
+    if (fresh) {
+        // 记录最近一次制导更新时刻，刷新任务据此在超时后自动把速度显示回落为 "--"，
+        // 避免制导中断后屏幕上残留旧速度值造成误判。
+        s_current_state.recon_guide_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
     }
 }
 
