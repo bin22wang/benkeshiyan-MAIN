@@ -1,12 +1,12 @@
 /**
  * @file udp_comm.c
- * @brief UDP Í¨ĞÅÄ£¿éÊµÏÖ
+ * @brief UDP é€šä¿¡æ¨¡å—å®ç°
  *
- * ·â×°ÁË UDP socket µÄÍêÕûÉúÃüÖÜÆÚ£º
- *  - ´´½¨ socket¡¢°ó¶¨±¾µØ¶Ë¿Ú
- *  - ºóÌ¨ FreeRTOS ÈÎÎñ³ÖĞø½ÓÊÕÊı¾İ
- *  - Í¨¹ı»Øµ÷»úÖÆ½«ÊÕµ½µÄÊı¾İÍ¨ÖªÉÏ²ã
- *  - Ìá¹©·¢ËÍ½Ó¿Ú£¨ÈçĞè¶àÈÎÎñ²¢·¢·¢ËÍ£¬½¨ÒéÓÉÉÏ²ã¼ÓËø´®ĞĞ»¯£©
+ * å°è£…äº† UDP socket çš„å®Œæ•´ç”Ÿå‘½å‘¨æœŸï¼š
+ *  - åˆ›å»º socketã€ç»‘å®šæœ¬åœ°ç«¯å£
+ *  - åå° FreeRTOS ä»»åŠ¡æŒç»­æ¥æ”¶æ•°æ®
+ *  - é€šè¿‡å›è°ƒæœºåˆ¶å°†æ”¶åˆ°çš„æ•°æ®é€šçŸ¥ä¸Šå±‚
+ *  - æä¾›å‘é€æ¥å£ï¼ˆå¦‚éœ€å¤šä»»åŠ¡å¹¶å‘å‘é€ï¼Œå»ºè®®ç”±ä¸Šå±‚åŠ é”ä¸²è¡ŒåŒ–ï¼‰
  */
 
 #include "udp_comm.h"
@@ -24,36 +24,36 @@
 #include "freertos/semphr.h"
 #include "esp_log.h"
 
-/* ========== Ä£¿éÈÕÖ¾±êÇ© ========== */
+/* ========== æ¨¡å—æ—¥å¿—æ ‡ç­¾ ========== */
 static const char *TAG = "udp_comm";
 
-/* ========== ½ÓÊÕ»º³åÇø´óĞ¡ ========== */
+/* ========== æ¥æ”¶ç¼“å†²åŒºå¤§å° ========== */
 #define UDP_RX_BUF_SIZE   512
 
-/* ========== Ä£¿éÄÚ²¿×´Ì¬ ========== */
+/* ========== æ¨¡å—å†…éƒ¨çŠ¶æ€ ========== */
 
-/** UDP socket ÎÄ¼şÃèÊö·û£¬-1 ±íÊ¾Î´³õÊ¼»¯ */
+/** UDP socket æ–‡ä»¶æè¿°ç¬¦ï¼Œ-1 è¡¨ç¤ºæœªåˆå§‹åŒ– */
 static int s_sock = -1;
 
-/** ·şÎñÆ÷µØÖ·½á¹¹Ìå£¨·¢ËÍÄ¿±ê£© */
+/** æœåŠ¡å™¨åœ°å€ç»“æ„ä½“ï¼ˆå‘é€ç›®æ ‡ï¼‰ */
 static struct sockaddr_in s_dest_addr;
 
-/** ·¢ËÍ´®ĞĞ»¯Ëø£¬±ÜÃâ¶à¸öÈÎÎñÍ¬Ê±·¢ËÍÍ¬Ò»¸ö socket¡£ */
+/** å‘é€ä¸²è¡ŒåŒ–é”ï¼Œé¿å…å¤šä¸ªä»»åŠ¡åŒæ—¶å‘é€åŒä¸€ä¸ª socketã€‚ */
 static SemaphoreHandle_t s_send_mutex = NULL;
 
-/** ÉÏ²ã×¢²áµÄ½ÓÊÕ»Øµ÷º¯Êı */
+/** ä¸Šå±‚æ³¨å†Œçš„æ¥æ”¶å›è°ƒå‡½æ•° */
 static udp_rx_callback_t s_rx_callback = NULL;
 
-/* ========== ÄÚ²¿ÈÎÎñ ========== */
+/* ========== å†…éƒ¨ä»»åŠ¡ ========== */
 
 /**
- * @brief UDP ½ÓÊÕºóÌ¨ÈÎÎñ
+ * @brief UDP æ¥æ”¶åå°ä»»åŠ¡
  *
- * ÔÚ¶ÀÁ¢µÄ FreeRTOS ÈÎÎñÖĞ³ÖĞøµ÷ÓÃ recvfrom()£¬
- * ÊÕµ½Êı¾İºóµ÷ÓÃÒÑ×¢²áµÄ»Øµ÷º¯ÊıÍ¨ÖªÉÏ²ã¡£
- * Ê¹ÓÃ 1 Ãë½ÓÊÕ³¬Ê±£¬±ÜÃâÈÎÎñÓÀ¾Ã×èÈû¡£
+ * åœ¨ç‹¬ç«‹çš„ FreeRTOS ä»»åŠ¡ä¸­æŒç»­è°ƒç”¨ recvfrom()ï¼Œ
+ * æ”¶åˆ°æ•°æ®åè°ƒç”¨å·²æ³¨å†Œçš„å›è°ƒå‡½æ•°é€šçŸ¥ä¸Šå±‚ã€‚
+ * ä½¿ç”¨ 1 ç§’æ¥æ”¶è¶…æ—¶ï¼Œé¿å…ä»»åŠ¡æ°¸ä¹…é˜»å¡ã€‚
  *
- * @param pvParameters Î´Ê¹ÓÃ
+ * @param pvParameters æœªä½¿ç”¨
  */
 static void udp_rx_task(void *pvParameters)
 {
@@ -66,19 +66,19 @@ static void udp_rx_task(void *pvParameters)
     while (1) {
         /*
          * recvfrom():
-         *  - ·µ»ØÖµ > 0£ºÊÕµ½ UDP Êı¾İ
-         *  - ·µ»ØÖµ = 0£ºUDP Ò»°ã²»»á³öÏÖ£¨¶Ô¶Ë¹Ø±ÕÎŞ¡°Á¬½Ó¡±ÓïÒå£©
-         *  - ·µ»ØÖµ < 0£º³ö´í£»µ±ÉèÖÃÁË SO_RCVTIMEO Ê±£¬³¬Ê±»á·µ»Ø -1 ²¢ÖÃ errno=EAGAIN/EWOULDBLOCK
+         *  - è¿”å›å€¼ > 0ï¼šæ”¶åˆ° UDP æ•°æ®
+         *  - è¿”å›å€¼ = 0ï¼šUDP ä¸€èˆ¬ä¸ä¼šå‡ºç°ï¼ˆå¯¹ç«¯å…³é—­æ— â€œè¿æ¥â€è¯­ä¹‰ï¼‰
+         *  - è¿”å›å€¼ < 0ï¼šå‡ºé”™ï¼›å½“è®¾ç½®äº† SO_RCVTIMEO æ—¶ï¼Œè¶…æ—¶ä¼šè¿”å› -1 å¹¶ç½® errno=EAGAIN/EWOULDBLOCK
          */
         int rx_len = recvfrom(s_sock, rxbuf, sizeof(rxbuf) - 1, 0,
                               (struct sockaddr *)&source_addr, &socklen);
 
         if (rx_len > 0) {
-            /* ×·¼Ó '\0' ·½±ã×÷Îª C ×Ö·û´®´òÓ¡ÈÕÖ¾£»len ÈÔÒÔ rx_len Îª×¼ */
+            /* è¿½åŠ  '\0' æ–¹ä¾¿ä½œä¸º C å­—ç¬¦ä¸²æ‰“å°æ—¥å¿—ï¼›len ä»ä»¥ rx_len ä¸ºå‡† */
             rxbuf[rx_len] = '\0';
 
             char src_ip[16];
-            /* inet_ntoa() ·µ»Ø¾²Ì¬»º³åÇøÖ¸Õë£¬¿½±´Ò»·İ±ÜÃâºóĞøµ÷ÓÃ¸²¸Ç */
+            /* inet_ntoa() è¿”å›é™æ€ç¼“å†²åŒºæŒ‡é’ˆï¼Œæ‹·è´ä¸€ä»½é¿å…åç»­è°ƒç”¨è¦†ç›– */
             strncpy(src_ip, inet_ntoa(source_addr.sin_addr), sizeof(src_ip) - 1);
             uint16_t src_port = ntohs(source_addr.sin_port);
 
@@ -86,7 +86,7 @@ static void udp_rx_task(void *pvParameters)
                      src_ip, src_port, rx_len, rxbuf);
 
             if (s_rx_callback != NULL) {
-                /* »Øµ÷ÔÚ±¾½ÓÊÕÈÎÎñÉÏÏÂÎÄÖ´ĞĞ£º½¨Òé»Øµ÷ÄÚ±£³ÖÇáÁ¿£¬±ØÒªÊ±×ª·¢µ½ÆäËû¶ÓÁĞ/ÈÎÎñ */
+                /* å›è°ƒåœ¨æœ¬æ¥æ”¶ä»»åŠ¡ä¸Šä¸‹æ–‡æ‰§è¡Œï¼šå»ºè®®å›è°ƒå†…ä¿æŒè½»é‡ï¼Œå¿…è¦æ—¶è½¬å‘åˆ°å…¶ä»–é˜Ÿåˆ—/ä»»åŠ¡ */
                 s_rx_callback(rxbuf, (size_t)rx_len, src_ip, src_port);
             }
 
@@ -100,7 +100,7 @@ static void udp_rx_task(void *pvParameters)
     vTaskDelete(NULL);
 }
 
-/* ========== ¹«¹²½Ó¿ÚÊµÏÖ ========== */
+/* ========== å…¬å…±æ¥å£å®ç° ========== */
 
 bool udp_comm_init(const char *server_ip, uint16_t server_port,
                    uint16_t local_port)
@@ -111,22 +111,22 @@ bool udp_comm_init(const char *server_ip, uint16_t server_port,
     }
 
     /*
-     * ÅäÖÃ·¢ËÍÄ¿±êµØÖ·£¨·şÎñÆ÷µØÖ·£©£ºudp_comm_send() »á½«Êı¾İ·¢Íù´ËµØÖ·¡£
-     * ×¢Òâ£ºUDP ÎŞÁ¬½Ó£¬"server" ½ö±íÊ¾Ä¬ÈÏÄ¿µÄ¶Ë¡£
+     * é…ç½®å‘é€ç›®æ ‡åœ°å€ï¼ˆæœåŠ¡å™¨åœ°å€ï¼‰ï¼šudp_comm_send() ä¼šå°†æ•°æ®å‘å¾€æ­¤åœ°å€ã€‚
+     * æ³¨æ„ï¼šUDP æ— è¿æ¥ï¼Œ"server" ä»…è¡¨ç¤ºé»˜è®¤ç›®çš„ç«¯ã€‚
      */
     memset(&s_dest_addr, 0, sizeof(s_dest_addr));
     s_dest_addr.sin_family      = AF_INET;
     s_dest_addr.sin_addr.s_addr = inet_addr(server_ip);
     s_dest_addr.sin_port        = htons(server_port);
 
-    /* ´´½¨ UDP socket */
+    /* åˆ›å»º UDP socket */
     s_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
     if (s_sock < 0) {
-        ESP_LOGE(TAG, "socket ´´½¨Ê§°Ü: errno=%d", errno);
+        ESP_LOGE(TAG, "socket åˆ›å»ºå¤±è´¥: errno=%d", errno);
         return false;
     }
 
-    /* °ó¶¨±¾µØ¶Ë¿Ú£¬ÓÃÓÚ½ÓÊÕÊı¾İ£¨INADDR_ANY ±íÊ¾¼àÌıËùÓĞ±¾»úÍø¿¨£© */
+    /* ç»‘å®šæœ¬åœ°ç«¯å£ï¼Œç”¨äºæ¥æ”¶æ•°æ®ï¼ˆINADDR_ANY è¡¨ç¤ºç›‘å¬æ‰€æœ‰æœ¬æœºç½‘å¡ï¼‰ */
     struct sockaddr_in local_addr = {
         .sin_family      = AF_INET,
         .sin_addr.s_addr = htonl(INADDR_ANY),
@@ -140,7 +140,7 @@ bool udp_comm_init(const char *server_ip, uint16_t server_port,
         return false;
     }
 
-    /* ÉèÖÃ½ÓÊÕ³¬Ê±£¬±ÜÃâ recvfrom ÓÀ¾Ã×èÈû£¬±ãÓÚÑ­»·ÄÚ¼ÌĞø×ö´íÎó´¦ÀíµÈ */
+    /* è®¾ç½®æ¥æ”¶è¶…æ—¶ï¼Œé¿å… recvfrom æ°¸ä¹…é˜»å¡ï¼Œä¾¿äºå¾ªç¯å†…ç»§ç»­åšé”™è¯¯å¤„ç†ç­‰ */
     struct timeval timeout = {
         .tv_sec  = 1,
         .tv_usec = 0,
@@ -150,7 +150,7 @@ bool udp_comm_init(const char *server_ip, uint16_t server_port,
     ESP_LOGI(TAG, "UDP socket ready, server=%s:%u, local_port=%u",
              server_ip, server_port, local_port);
 
-    /* Æô¶¯½ÓÊÕÈÎÎñ£ººóĞøÊÕµ½ UDP Êı¾İ½«Í¨¹ı»Øµ÷Í¨ÖªÉÏ²ã */
+    /* å¯åŠ¨æ¥æ”¶ä»»åŠ¡ï¼šåç»­æ”¶åˆ° UDP æ•°æ®å°†é€šè¿‡å›è°ƒé€šçŸ¥ä¸Šå±‚ */
     BaseType_t ret = xTaskCreate(udp_rx_task, "udp_rx_task",
                                  4096, NULL, 5, NULL);
     if (ret != pdPASS) {
@@ -190,7 +190,7 @@ bool udp_comm_send(const char *data, size_t len)
         return false;
     }
 
-    /* sendto(): Ö±½ÓÖ¸¶¨Ä¿µÄµØÖ·£¨s_dest_addr£©£¬ÎŞĞè connect() */
+    /* sendto(): ç›´æ¥æŒ‡å®šç›®çš„åœ°å€ï¼ˆs_dest_addrï¼‰ï¼Œæ— éœ€ connect() */
     int err = sendto(s_sock, data, len, 0,
                      (struct sockaddr *)&s_dest_addr, sizeof(s_dest_addr));
     xSemaphoreGive(s_send_mutex);

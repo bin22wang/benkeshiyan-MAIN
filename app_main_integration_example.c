@@ -1,15 +1,15 @@
 /**
  * @file app_main_integration_example.c
- * @brief app_main.c ÖĞ¼¯³É video_streamer Ä£¿éµÄ COMPLETE ´úÂëÊ¾Àı
+ * @brief app_main.c ä¸­é›†æˆ video_streamer æ¨¡å—çš„ COMPLETE ä»£ç ç¤ºä¾‹
  *
- * ±¾ÎÄ¼şÕ¹Ê¾ÁËÈçºÎÔÚÏÖÓĞ app_main.c ÖĞ¼¯³ÉÊÓÆµÁ÷´«Êä¹¦ÄÜ¡£
- * Äã¿ÉÒÔ½«Ïà¹Ø´úÂë¸´ÖÆµ½Êµ¼ÊµÄ app_main.c ÖĞ¡£
+ * æœ¬æ–‡ä»¶å±•ç¤ºäº†å¦‚ä½•åœ¨ç°æœ‰ app_main.c ä¸­é›†æˆè§†é¢‘æµä¼ è¾“åŠŸèƒ½ã€‚
+ * ä½ å¯ä»¥å°†ç›¸å…³ä»£ç å¤åˆ¶åˆ°å®é™…çš„ app_main.c ä¸­ã€‚
  *
- * ?? ÖØÒªËµÃ÷£ºÕâÊÇÊ¾Àı´úÂë£¬Çë¸ù¾İÊµ¼ÊµÄ app_main.c ½á¹¹½øĞĞµ÷Õû¡£
+ * ?? é‡è¦è¯´æ˜ï¼šè¿™æ˜¯ç¤ºä¾‹ä»£ç ï¼Œè¯·æ ¹æ®å®é™…çš„ app_main.c ç»“æ„è¿›è¡Œè°ƒæ•´ã€‚
  */
 
 // ============================================================================
-// µÚ 1 ²½£ºÔÚ app_main.c ¶¥²¿Ìí¼ÓÒÔÏÂÍ·ÎÄ¼ş°üº¬
+// ç¬¬ 1 æ­¥ï¼šåœ¨ app_main.c é¡¶éƒ¨æ·»åŠ ä»¥ä¸‹å¤´æ–‡ä»¶åŒ…å«
 // ============================================================================
 
 #include <stdio.h>
@@ -25,7 +25,7 @@
 #include "esp_log.h"
 #include "esp_camera.h"
 
-// ===== ÏîÄ¿Ä£¿é =====
+// ===== é¡¹ç›®æ¨¡å— =====
 #include "disp_mgr.h"
 #include "wifi_mgr.h"
 #include "udp_comm.h"
@@ -34,7 +34,7 @@
 #include "recon_mgr.h"
 #include "led_ctrl.h"
 
-// ===== ĞÂÔö£ºÊÓÆµÁ÷Ä£¿é =====
+// ===== æ–°å¢ï¼šè§†é¢‘æµæ¨¡å— =====
 #include "video_streamer.h"
 
 
@@ -42,49 +42,49 @@ static const char *TAG = "app_main";
 
 
 // ============================================================================
-// µÚ 2 ²½£ºÌí¼Ó UDP Êı¾İ½ÓÊÕ»Øµ÷º¯Êı£¨Èç¹û»¹Ã»ÓĞ£©
+// ç¬¬ 2 æ­¥ï¼šæ·»åŠ  UDP æ•°æ®æ¥æ”¶å›è°ƒå‡½æ•°ï¼ˆå¦‚æœè¿˜æ²¡æœ‰ï¼‰
 // ============================================================================
 
 /**
- * @brief UDP ½ÓÊÕ»Øµ÷º¯Êı
+ * @brief UDP æ¥æ”¶å›è°ƒå‡½æ•°
  *
- * ¸Ãº¯ÊıÔÚ UDP ½ÓÊÕÈÎÎñÖĞ±»µ÷ÓÃ£¬´¦ÀíËùÓĞÊÕµ½µÄ UDP Êı¾İ¡£
- * ÆäÖĞ°üÀ¨ V Ğ­Òé£¨ÊÓÆµÁ÷¿ØÖÆ£©µÄ´¦Àí¡£
+ * è¯¥å‡½æ•°åœ¨ UDP æ¥æ”¶ä»»åŠ¡ä¸­è¢«è°ƒç”¨ï¼Œå¤„ç†æ‰€æœ‰æ”¶åˆ°çš„ UDP æ•°æ®ã€‚
+ * å…¶ä¸­åŒ…æ‹¬ V åè®®ï¼ˆè§†é¢‘æµæ§åˆ¶ï¼‰çš„å¤„ç†ã€‚
  */
 static void on_udp_data_received(const char *data, size_t len,
                                  const char *src_ip, uint16_t src_port)
 {
     /*
-     * ×¢Òâ£º¸Ã»Øµ÷ÔËĞĞÔÚ UDP ½ÓÊÕÈÎÎñ£¨udp_rx_task£©ÉÏÏÂÎÄ¡£
-     * ½¨Òé±£³Ö´¦ÀíÇáÁ¿£»ÈôĞèÒª×ö½ÏÖØÂß¼­£¬¿É¸ÄÎªÍ¶µİ¶ÓÁĞ¸øÆäËûÈÎÎñ´¦Àí¡£
+     * æ³¨æ„ï¼šè¯¥å›è°ƒè¿è¡Œåœ¨ UDP æ¥æ”¶ä»»åŠ¡ï¼ˆudp_rx_taskï¼‰ä¸Šä¸‹æ–‡ã€‚
+     * å»ºè®®ä¿æŒå¤„ç†è½»é‡ï¼›è‹¥éœ€è¦åšè¾ƒé‡é€»è¾‘ï¼Œå¯æ”¹ä¸ºæŠ•é€’é˜Ÿåˆ—ç»™å…¶ä»–ä»»åŠ¡å¤„ç†ã€‚
      */
     ESP_LOGI(TAG, "[RX] from %s:%u, len=%d", src_ip, src_port, (int)len);
 
-    // ½«Ô­Ê¼ UDP ¸ºÔØ½»¸øĞ­Òé½âÎöÆ÷£¨½âÎö½á¹ûÍ¨¹ı consume/get ½Ó¿ÚÈ¡³ö£©
+    // å°†åŸå§‹ UDP è´Ÿè½½äº¤ç»™åè®®è§£æå™¨ï¼ˆè§£æç»“æœé€šè¿‡ consume/get æ¥å£å–å‡ºï¼‰
     proto_parse_message(data, len);
     recon_mgr_handle_message(data, len);
 
     // ========================================================================
-    // ===== ĞÂÔö£º´¦Àí V Ğ­ÒéÊÓÆµÁ÷¿ØÖÆÃüÁî =====
+    // ===== æ–°å¢ï¼šå¤„ç† V åè®®è§†é¢‘æµæ§åˆ¶å‘½ä»¤ =====
     // ========================================================================
     proto_video_cmd_t video_cmd = proto_consume_video_cmd();
     switch (video_cmd) {
         case VIDEO_CMD_START:
             ESP_LOGI(TAG, "? Video streaming START command received");
             video_streamer_start();
-            // ¿ÉÑ¡£º·¢ËÍÈ·ÈÏÏûÏ¢»Ø·şÎñÆ÷
+            // å¯é€‰ï¼šå‘é€ç¡®è®¤æ¶ˆæ¯å›æœåŠ¡å™¨
             // udp_comm_send("[V,ACK,START]", 13);
             break;
 
         case VIDEO_CMD_STOP:
             ESP_LOGI(TAG, "? Video streaming STOP command received");
             video_streamer_stop();
-            // ¿ÉÑ¡£º·¢ËÍÈ·ÈÏÏûÏ¢»Ø·şÎñÆ÷
+            // å¯é€‰ï¼šå‘é€ç¡®è®¤æ¶ˆæ¯å›æœåŠ¡å™¨
             // udp_comm_send("[V,ACK,STOP]", 12);
             break;
 
         case VIDEO_CMD_NONE:
-            /* ÎŞĞÂµÄÊÓÆµÃüÁî£¬¼ÌĞø´¦ÀíÆäËûÂß¼­ */
+            /* æ— æ–°çš„è§†é¢‘å‘½ä»¤ï¼Œç»§ç»­å¤„ç†å…¶ä»–é€»è¾‘ */
             break;
     }
     // ========================================================================
@@ -92,14 +92,14 @@ static void on_udp_data_received(const char *data, size_t len,
 
 
 // ============================================================================
-// µÚ 3 ²½£ºĞŞ¸Ä app_main º¯Êı£¬Ìí¼Ó video_streamer_init() µ÷ÓÃ
+// ç¬¬ 3 æ­¥ï¼šä¿®æ”¹ app_main å‡½æ•°ï¼Œæ·»åŠ  video_streamer_init() è°ƒç”¨
 // ============================================================================
 
 void app_main(void)
 {
     ESP_LOGI(TAG, "Starting main application...");
 
-    /* ========== ´æ´¢³õÊ¼»¯ ========== */
+    /* ========== å­˜å‚¨åˆå§‹åŒ– ========== */
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -108,32 +108,32 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
     ESP_LOGI(TAG, "? NVS initialized");
 
-    /* ========== ÏÔÊ¾ÆÁ³õÊ¼»¯ ========== */
+    /* ========== æ˜¾ç¤ºå±åˆå§‹åŒ– ========== */
     ESP_ERROR_CHECK(disp_mgr_init());
     ESP_LOGI(TAG, "? Display manager initialized");
 
-    /* ========== ÉãÏñÍ·³õÊ¼»¯ ========== */
+    /* ========== æ‘„åƒå¤´åˆå§‹åŒ– ========== */
     if (!camera_ui_init()) {
         ESP_LOGE(TAG, "? Camera init failed!");
         return;
     }
     ESP_LOGI(TAG, "? Camera UI initialized");
 
-    /* ========== Wi-Fi ³õÊ¼»¯ ========== */
+    /* ========== Wi-Fi åˆå§‹åŒ– ========== */
     esp_netif_init();
     esp_event_loop_create_default();
     wifi_mgr_init();
     ESP_LOGI(TAG, "? Wi-Fi manager initialized");
 
-    /* ========== µÈ´ı Wi-Fi Á¬½Ó ========== */
-    // £¨¸ù¾İÊµ¼ÊĞèÇóµÈ´ı Wi-Fi Á¬½Ó...£©
+    /* ========== ç­‰å¾… Wi-Fi è¿æ¥ ========== */
+    // ï¼ˆæ ¹æ®å®é™…éœ€æ±‚ç­‰å¾… Wi-Fi è¿æ¥...ï¼‰
     vTaskDelay(pdMS_TO_TICKS(5000));
 
-    /* ========== UDP Í¨ĞÅ³õÊ¼»¯ ========== */
-    // ×¢Òâ£ºÕâÀïµÄ IP ºÍ¶Ë¿ÚĞèÒª¸ù¾İÊµ¼ÊÍøÂçÅäÖÃµ÷Õû
-    const char *server_ip = "192.168.31.46";      // ·şÎñÆ÷ IP
-    uint16_t server_port = 5000;                  // ·şÎñÆ÷¶Ë¿Ú£¨·¢ËÍÄ¿±ê£©
-    uint16_t local_port = 5001;                   // ±¾µØ½ÓÊÕ¶Ë¿Ú
+    /* ========== UDP é€šä¿¡åˆå§‹åŒ– ========== */
+    // æ³¨æ„ï¼šè¿™é‡Œçš„ IP å’Œç«¯å£éœ€è¦æ ¹æ®å®é™…ç½‘ç»œé…ç½®è°ƒæ•´
+    const char *server_ip = "192.168.31.46";      // æœåŠ¡å™¨ IP
+    uint16_t server_port = 5000;                  // æœåŠ¡å™¨ç«¯å£ï¼ˆå‘é€ç›®æ ‡ï¼‰
+    uint16_t local_port = 5001;                   // æœ¬åœ°æ¥æ”¶ç«¯å£
 
     if (!udp_comm_init(server_ip, server_port, local_port)) {
         ESP_LOGE(TAG, "? UDP communication init failed!");
@@ -141,15 +141,15 @@ void app_main(void)
     }
     ESP_LOGI(TAG, "? UDP communication module initialized");
 
-    /* ========== ×¢²á UDP ½ÓÊÕ»Øµ÷ ========== */
+    /* ========== æ³¨å†Œ UDP æ¥æ”¶å›è°ƒ ========== */
     udp_comm_register_rx_callback(on_udp_data_received);
     ESP_LOGI(TAG, "? UDP RX callback registered");
 
-    /* ========== Ğ­Òé½âÎöÆ÷³õÊ¼»¯ ========== */
-    proto_parser_init("CAR1");  // ±¾³µ ID
+    /* ========== åè®®è§£æå™¨åˆå§‹åŒ– ========== */
+    proto_parser_init("CAR1");  // æœ¬è½¦ ID
     ESP_LOGI(TAG, "? Protocol parser initialized");
 
-    /* ========== ÆäËûÄ£¿é³õÊ¼»¯ ========== */
+    /* ========== å…¶ä»–æ¨¡å—åˆå§‹åŒ– ========== */
     recon_mgr_init();
     ESP_LOGI(TAG, "? Reconnaissance manager initialized");
 
@@ -157,11 +157,11 @@ void app_main(void)
     ESP_LOGI(TAG, "? LED controller initialized");
 
     /* ========================================================================
-     * ===== ĞÂÔö£ºÊÓÆµÁ÷¼à¿ØÄ£¿é³õÊ¼»¯ =====
+     * ===== æ–°å¢ï¼šè§†é¢‘æµç›‘æ§æ¨¡å—åˆå§‹åŒ– =====
      * 
-     * ±ØĞëÔÚÒÔÏÂÄ£¿éÖ®ºóµ÷ÓÃ£º
-     *   - camera_ui_init()      £¨ÉãÏñÍ·³õÊ¼»¯Íê³É£©
-     *   - udp_comm_init()       £¨UDP Í¨ĞÅ¾ÍĞ÷£©
+     * å¿…é¡»åœ¨ä»¥ä¸‹æ¨¡å—ä¹‹åè°ƒç”¨ï¼š
+     *   - camera_ui_init()      ï¼ˆæ‘„åƒå¤´åˆå§‹åŒ–å®Œæˆï¼‰
+     *   - udp_comm_init()       ï¼ˆUDP é€šä¿¡å°±ç»ªï¼‰
      * ======================================================================*/
     video_streamer_init();
     ESP_LOGI(TAG, "? Video streamer module initialized");
@@ -169,27 +169,27 @@ void app_main(void)
 
     ESP_LOGI(TAG, "? All systems initialized successfully!");
 
-    /* ========== Ö÷Ó¦ÓÃÑ­»· ========== */
-    // ¸ù¾İÊµ¼Ê¹¤³ÌµÄÓ¦ÓÃÑ­»·¼ÌĞø...
+    /* ========== ä¸»åº”ç”¨å¾ªç¯ ========== */
+    // æ ¹æ®å®é™…å·¥ç¨‹çš„åº”ç”¨å¾ªç¯ç»§ç»­...
     while (1) {
-        // ÀıÈç£º´¦ÀíÆäËûºóÌ¨ÈÎÎñ¡¢×´Ì¬¼à²âµÈ
+        // ä¾‹å¦‚ï¼šå¤„ç†å…¶ä»–åå°ä»»åŠ¡ã€çŠ¶æ€ç›‘æµ‹ç­‰
         vTaskDelay(pdMS_TO_TICKS(1000));
 
-        // ¿ÉÑ¡£º¶¨ÆÚ´òÓ¡ÏµÍ³×´Ì¬
+        // å¯é€‰ï¼šå®šæœŸæ‰“å°ç³»ç»ŸçŠ¶æ€
         // ESP_LOGI(TAG, "System tick: %ld", xTaskGetTickCount());
     }
 }
 
 
 // ============================================================================
-// µÚ 4 ²½£¨¿ÉÑ¡£©£ºÌí¼ÓÔ¶³Ì»¥¶¯ÈÎÎñ
+// ç¬¬ 4 æ­¥ï¼ˆå¯é€‰ï¼‰ï¼šæ·»åŠ è¿œç¨‹äº’åŠ¨ä»»åŠ¡
 // ============================================================================
 
 /**
- * @brief Ô¶³Ì½»»¥ÈÎÎñÊ¾Àı
+ * @brief è¿œç¨‹äº¤äº’ä»»åŠ¡ç¤ºä¾‹
  *
- * ¸ÃÈÎÎñ¶¨ÆÚ´¦Àí¸÷ÖÖĞ­ÒéÏûÏ¢²¢Ö´ĞĞÏàÓ¦µÄ¿ØÖÆÃüÁî¡£
- * ÕâÊÇÒ»¸ö¿ÉÑ¡µÄÊ¾Àı£¬Õ¹Ê¾ÈçºÎÔÚÖ÷Ó¦ÓÃÁ÷ÖĞ¼¯³ÉÊÓÆµÁ÷¿ØÖÆ¡£
+ * è¯¥ä»»åŠ¡å®šæœŸå¤„ç†å„ç§åè®®æ¶ˆæ¯å¹¶æ‰§è¡Œç›¸åº”çš„æ§åˆ¶å‘½ä»¤ã€‚
+ * è¿™æ˜¯ä¸€ä¸ªå¯é€‰çš„ç¤ºä¾‹ï¼Œå±•ç¤ºå¦‚ä½•åœ¨ä¸»åº”ç”¨æµä¸­é›†æˆè§†é¢‘æµæ§åˆ¶ã€‚
  */
 static void remote_control_task(void *pvParameters)
 {
@@ -198,25 +198,25 @@ static void remote_control_task(void *pvParameters)
     ESP_LOGI(TAG, "Remote control task started");
 
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(100));  // Ã¿ 100ms ¼ì²éÒ»´Î
+        vTaskDelay(pdMS_TO_TICKS(100));  // æ¯ 100ms æ£€æŸ¥ä¸€æ¬¡
 
-        // Ïû·ÑÒÆ¶¯Ö¸Áî
+        // æ¶ˆè´¹ç§»åŠ¨æŒ‡ä»¤
         proto_cmd_move_t move_cmd;
         if (proto_consume_move_cmd(&move_cmd)) {
             ESP_LOGI(TAG, "Move command: target=%s, pos=(%.2f, %.2f, %.2f)",
                      move_cmd.target_car, move_cmd.x, move_cmd.y, move_cmd.yaw);
-            // µ÷ÓÃÔË¶¯¿ØÖÆº¯Êı...
+            // è°ƒç”¨è¿åŠ¨æ§åˆ¶å‡½æ•°...
         }
 
-        // Ïû·Ñ±à¶ÓÖ¸Áî
+        // æ¶ˆè´¹ç¼–é˜ŸæŒ‡ä»¤
         proto_cmd_formation_t form_cmd;
         if (proto_consume_formation_cmd(&form_cmd)) {
             ESP_LOGI(TAG, "Formation command: type=%d, leader=%s",
                      form_cmd.type, form_cmd.leader_id);
-            // µ÷ÓÃ±à¶Ó¿ØÖÆº¯Êı...
+            // è°ƒç”¨ç¼–é˜Ÿæ§åˆ¶å‡½æ•°...
         }
 
-        // ÆäËûÂß¼­...
+        // å…¶ä»–é€»è¾‘...
     }
 
     vTaskDelete(NULL);
@@ -224,29 +224,29 @@ static void remote_control_task(void *pvParameters)
 
 
 // ============================================================================
-// ¸½¼ÓËµÃ÷
+// é™„åŠ è¯´æ˜
 // ============================================================================
 
 /*
- * ? ¼¯³É¼ì²éÇåµ¥£º
+ * ? é›†æˆæ£€æŸ¥æ¸…å•ï¼š
  *
- * 1. [ ] ÔÚ CMakeLists.txt ÖĞÌí¼ÓÁË "modules/video_streamer.c"
- * 2. [ ] ÔÚ app_main.c ¶¥²¿Ìí¼ÓÁË #include "video_streamer.h"
- * 3. [ ] ÔÚ app_main() ÖĞµ÷ÓÃÁË video_streamer_init()
- * 4. [ ] ÔÚ UDP »Øµ÷ÖĞÌí¼ÓÁË video_cmd ´¦Àí´úÂë
- * 5. [ ] ×¢²áÁË UDP ½ÓÊÕ»Øµ÷ (udp_comm_register_rx_callback)
- * 6. [ ] È·±£ÉãÏñÍ·¡¢UDP¡¢proto_parser ¶¼ÒÑÔÚ video_streamer_init Ç°³õÊ¼»¯
+ * 1. [ ] åœ¨ CMakeLists.txt ä¸­æ·»åŠ äº† "modules/video_streamer.c"
+ * 2. [ ] åœ¨ app_main.c é¡¶éƒ¨æ·»åŠ äº† #include "video_streamer.h"
+ * 3. [ ] åœ¨ app_main() ä¸­è°ƒç”¨äº† video_streamer_init()
+ * 4. [ ] åœ¨ UDP å›è°ƒä¸­æ·»åŠ äº† video_cmd å¤„ç†ä»£ç 
+ * 5. [ ] æ³¨å†Œäº† UDP æ¥æ”¶å›è°ƒ (udp_comm_register_rx_callback)
+ * 6. [ ] ç¡®ä¿æ‘„åƒå¤´ã€UDPã€proto_parser éƒ½å·²åœ¨ video_streamer_init å‰åˆå§‹åŒ–
  *
- * ?? ³£¼ûÎÊÌâ£º
+ * ?? å¸¸è§é—®é¢˜ï¼š
  *
- * Q: ±àÒëÊ±±¨ "undefined reference to video_streamer_init"
- * A: ¼ì²é CMakeLists.txt ÊÇ·ñ°üº¬ video_streamer.c£¬Ö´ĞĞ idf.py clean
+ * Q: ç¼–è¯‘æ—¶æŠ¥ "undefined reference to video_streamer_init"
+ * A: æ£€æŸ¥ CMakeLists.txt æ˜¯å¦åŒ…å« video_streamer.cï¼Œæ‰§è¡Œ idf.py clean
  *
- * Q: Æô¶¯ºóÃ»ÓĞÍ¼´«Êı¾İ·¢ËÍ
- * A: È·ÈÏ camera_ui_init() ºÍ udp_comm_init() ¶¼³É¹¦ÁË
- *    ²é¿´ÈÕÖ¾ÖĞÊÇ·ñÓĞ video_streamer µÄ ERROR
+ * Q: å¯åŠ¨åæ²¡æœ‰å›¾ä¼ æ•°æ®å‘é€
+ * A: ç¡®è®¤ camera_ui_init() å’Œ udp_comm_init() éƒ½æˆåŠŸäº†
+ *    æŸ¥çœ‹æ—¥å¿—ä¸­æ˜¯å¦æœ‰ video_streamer çš„ ERROR
  *
- * Q: ÊÕµ½ [V,START] ºóĞ¡³µÃ»ÓĞ·´Ó¦
- * A: È·±£ proto_consume_video_cmd() ÔÚ UDP »Øµ÷ÖĞ±»µ÷ÓÃ
- *    ¼ì²é app_main ÖĞµÄ¼¯³É´úÂëÊÇ·ñÕıÈ·¸´ÖÆ
+ * Q: æ”¶åˆ° [V,START] åå°è½¦æ²¡æœ‰ååº”
+ * A: ç¡®ä¿ proto_consume_video_cmd() åœ¨ UDP å›è°ƒä¸­è¢«è°ƒç”¨
+ *    æ£€æŸ¥ app_main ä¸­çš„é›†æˆä»£ç æ˜¯å¦æ­£ç¡®å¤åˆ¶
  */

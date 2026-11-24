@@ -1,13 +1,13 @@
 /**
  * @file wifi_mgr.h
- * @brief Wi-Fi STA ���ӹ���ģ��ͷ�ļ�
+ * @brief Wi-Fi STA 连接管理模块头文件
  *
- * �ṩ Wi-Fi STA ���ӵġ���С��װ���ӿڣ����� STA netif������ Wi-Fi���������Ӳ������ȴ���ȡ IP��
+ * 提供 Wi-Fi STA 连接的“最小封装”接口：创建 STA netif、配置 Wi-Fi、发起连接并阻塞等待获取 IP。
  *
- * ע�⣺��ģ������ϲ������ȫ�������ʼ����
+ * 注意：本模块假设上层已完成全局网络初始化：
  *  - esp_netif_init()
  *  - esp_event_loop_create_default()
- * ���� Wi-Fi/�¼��ص��޷�����������
+ * 否则 Wi-Fi/事件回调无法正常工作。
  */
 
 #pragma once
@@ -19,18 +19,18 @@ extern "C" {
 #endif
 
 /**
- * @brief ��ʼ�� Wi-Fi STA �����ӵ�Ԥ�� AP
+ * @brief 初始化 Wi-Fi STA 并连接到预设 AP
  *
- * �ڲ���������²��裺
- *  1. ����Ĭ�� STA netif��esp_netif_create_default_wifi_sta��
- *  2. ��ʼ�� Wi-Fi ������ע���¼��ص�������/�Ͽ�/GOT_IP��
- *  3. ���ò����� Wi-Fi STA ģʽ
- *  4. �����ȴ����ӳɹ���ʧ�ܱ�־��� 30 �룩
+ * 内部会完成以下步骤：
+ *  1. 创建默认 STA netif（esp_netif_create_default_wifi_sta）
+ *  2. 初始化 Wi-Fi 驱动并注册事件回调（连接/断开/GOT_IP）
+ *  3. 配置并启动 Wi-Fi STA 模式
+ *  4. 阻塞等待连接成功或失败标志（最长 30 秒）
  *
- * Wi-Fi �� SSID/���������Ŀǰ��ʵ���ļ���ͨ���궨�������wifi_mgr.c����
+ * Wi-Fi 的 SSID/密码等配置目前在实现文件中通过宏定义给出（wifi_mgr.c）。
  *
- * @return true  ���ӳɹ�����ȡ�� IP
- * @return false ����ʧ�ܣ���ʱ����֤����
+ * @return true  连接成功并获取到 IP
+ * @return false 连接失败（超时或认证错误）
  */
 bool wifi_mgr_init(void);
 

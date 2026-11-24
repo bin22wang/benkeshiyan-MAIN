@@ -1,14 +1,14 @@
 /*
  * vel_solver.c
  *
- * ESP32 ²àËÙ¶È½âËãÄ£¿é£¨¶ÔÆë STM32 balance.c / formation_control.c Âß¼­£©¡£
- * Ö÷ÒªÖ°Ôð£º
- *  - »ùÓÚÉÏ²ãÖ¸Áî£¨ÒÆ¶¯/±à¶Ó£©Óë±¾³µ×´Ì¬¼ÆËãÄ¿±êËÙ¶È
- *  - Êä³ö body-frame ËÙ¶È: Vx(Ç°Ïò) / Vy(×óÏò) / Vz(yaw¿ØÖÆÁ¿)
+ * ESP32 ä¾§é€Ÿåº¦è§£ç®—æ¨¡å—ï¼ˆå¯¹é½ STM32 balance.c / formation_control.c é€»è¾‘ï¼‰ã€‚
+ * ä¸»è¦èŒè´£ï¼š
+ *  - åŸºäºŽä¸Šå±‚æŒ‡ä»¤ï¼ˆç§»åŠ¨/ç¼–é˜Ÿï¼‰ä¸Žæœ¬è½¦çŠ¶æ€è®¡ç®—ç›®æ ‡é€Ÿåº¦
+ *  - è¾“å‡º body-frame é€Ÿåº¦: Vx(å‰å‘) / Vy(å·¦å‘) / Vz(yawæŽ§åˆ¶é‡)
  *
- * ËµÃ÷£º
- *  - Vz Îª¹éÒ»»¯ yaw ¿ØÖÆÁ¿£¨·¶Î§ [-1, 1]£©£¬Ö±½ÓËÍ STM32 µÄ Drive_Motor()
- *  - ±¾Ä£¿é²»¸ºÔð UART ·¢ËÍ£¬½öÊä³ö vel_output_t
+ * è¯´æ˜Žï¼š
+ *  - Vz ä¸ºå½’ä¸€åŒ– yaw æŽ§åˆ¶é‡ï¼ˆèŒƒå›´ [-1, 1]ï¼‰ï¼Œç›´æŽ¥é€ STM32 çš„ Drive_Motor()
+ *  - æœ¬æ¨¡å—ä¸è´Ÿè´£ UART å‘é€ï¼Œä»…è¾“å‡º vel_output_t
  */
 
 #include "vel_solver.h"
@@ -22,28 +22,28 @@
 
 static const char *TAG = "vel_solver";
 
-/* ÄÚ²¿×´Ì¬ */
+/* å†…éƒ¨çŠ¶æ€ */
 static vel_solver_mode_t s_mode = VEL_MODE_IDLE;
 static vel_own_state_t s_own = {0};
 static vel_output_t s_output = {0};
 
-/* Î»ÖÃÄ¿±ê£¨ÊÀ½ç×ø±ê£© */
+/* ä½ç½®ç›®æ ‡ï¼ˆä¸–ç•Œåæ ‡ï¼‰ */
 static float s_target_x = 0.0f;
 static float s_target_y = 0.0f;
 static float s_target_yaw = 0.0f;
 
-/* Follower ²ÎÊý */
+/* Follower å‚æ•° */
 static char s_leader_id[PROTO_CAR_ID_LEN] = {0};
 static float s_off_x = 0.0f;
 static float s_off_y = 0.0f;
 static float s_off_yaw = 0.0f;
 
-/* ÊÖ¶¯Ò£¿ØËÙ¶È£¨VEL_MODE_MANUAL Ä£Ê½ÏÂÖ±½ÓÍ¸´«£© */
+/* æ‰‹åŠ¨é¥æŽ§é€Ÿåº¦ï¼ˆVEL_MODE_MANUAL æ¨¡å¼ä¸‹ç›´æŽ¥é€ä¼ ï¼‰ */
 static float s_manual_vx = 0.0f;
 static float s_manual_vy = 0.0f;
 static float s_manual_vz = 0.0f;
 
-/* ¹ì¼£ËÙ¶È£¨VEL_MODE_TRAJECTORY Ä£Ê½£© */
+/* è½¨è¿¹é€Ÿåº¦ï¼ˆVEL_MODE_TRAJECTORY æ¨¡å¼ï¼‰ */
 static float s_traj_vx = 0.0f;
 static float s_traj_vy = 0.0f;
 static float s_traj_target_yaw = 0.0f;
@@ -297,7 +297,7 @@ bool vel_solver_compute(vel_output_t *out)
         control_vy = s_traj_vy;
         control_vz = yaw_pid_control(s_own.yaw, s_traj_target_yaw);
     } else if (s_mode == VEL_MODE_POSITION) {
-        /* Auto_Adjust_Position_And_Yaw ¶ÔÆëÊµÏÖ */
+        /* Auto_Adjust_Position_And_Yaw å¯¹é½å®žçŽ° */
         float error_x = s_target_x - s_own.x;
         float error_y = s_target_y - s_own.y;
         float distance_to_target = sqrtf(error_x * error_x + error_y * error_y);
@@ -325,7 +325,7 @@ bool vel_solver_compute(vel_output_t *out)
             control_vz = yaw_pid_control(s_own.yaw, s_target_yaw);
         }
     } else if (s_mode == VEL_MODE_FOLLOWER) {  /* NOLINT: intentional else-if chain */
-        /* Formation_Follower_Control ¶ÔÆëÊµÏÖ */
+        /* Formation_Follower_Control å¯¹é½å®žçŽ° */
         const proto_car_state_t *leader = proto_get_car_state(s_leader_id);
         if (!leader || !leader->valid) {
             ESP_LOGW(TAG, "leader %s not found/valid", s_leader_id);

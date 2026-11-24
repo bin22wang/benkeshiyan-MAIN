@@ -1,13 +1,13 @@
 /**
  * @file video_streamer.c
- * @brief ¸ß¶ÈÄ£¿é»¯µÄ UDP °´ĞèÍ¼´«Ä£¿éÊµÏÖ
+ * @brief é«˜åº¦æ¨¡å—åŒ–çš„ UDP æŒ‰éœ€å›¾ä¼ æ¨¡å—å®ç°
  *
- * ºËĞÄÌØĞÔ£º
- *  - ¶ÀÁ¢ FreeRTOS ÈÎÎñ£¨video_stream_task£©ÊµÏÖÁ÷´«ÊäÂß¼­
- *  - RGB565 ¡ú JPEG Èí¼şÑ¹Ëõ£¨frame2jpg£©
- *  - ×ÔÊÊÓ¦·ÖÆ¬´«Êä£¨×î´ó 900 ×Ö½Ú/Æ¬£©
- *  - ·ÀÓµ¶ÂÑÓÊ±»úÖÆ£¨Ã¿Æ¬¼ä vTaskDelay(2ms)£©
- *  - ÍêÈ«½âñî£º²»ÒÀÀµ recon_mgr¡¢²»¸ÉÉæ¿ØÖÆÂß¼­
+ * æ ¸å¿ƒç‰¹æ€§ï¼š
+ *  - ç‹¬ç«‹ FreeRTOS ä»»åŠ¡ï¼ˆvideo_stream_taskï¼‰å®ç°æµä¼ è¾“é€»è¾‘
+ *  - RGB565 â†’ JPEG è½¯ä»¶å‹ç¼©ï¼ˆframe2jpgï¼‰
+ *  - è‡ªé€‚åº”åˆ†ç‰‡ä¼ è¾“ï¼ˆæœ€å¤§ 900 å­—èŠ‚/ç‰‡ï¼‰
+ *  - é˜²æ‹¥å µå»¶æ—¶æœºåˆ¶ï¼ˆæ¯ç‰‡é—´ vTaskDelay(2ms)ï¼‰
+ *  - å®Œå…¨è§£è€¦ï¼šä¸ä¾èµ– recon_mgrã€ä¸å¹²æ¶‰æ§åˆ¶é€»è¾‘
  */
 
 #include "video_streamer.h"
@@ -29,65 +29,65 @@
 #include "udp_comm.h"
 
 /* ========================================================================
- * Ä£¿éÅäÖÃÓë³£Á¿
+ * æ¨¡å—é…ç½®ä¸å¸¸é‡
  * ======================================================================*/
 
 static const char *TAG = "video_streamer";
 
-/** ×î´ó UDP ¸ºÔØ´óĞ¡£¨ÎªÁË±£Ö¤´«ÊäĞ§ÂÊ£¬JPEG ·ÖÆ¬²»³¬¹ı 900 ×Ö½Ú£© */
+/** æœ€å¤§ UDP è´Ÿè½½å¤§å°ï¼ˆä¸ºäº†ä¿è¯ä¼ è¾“æ•ˆç‡ï¼ŒJPEG åˆ†ç‰‡ä¸è¶…è¿‡ 900 å­—èŠ‚ï¼‰ */
 #define MAX_CHUNK_SIZE     900
 
-/** ÈÎÎñÕ»´óĞ¡£¨×Ö½Ú£© */
+/** ä»»åŠ¡æ ˆå¤§å°ï¼ˆå­—èŠ‚ï¼‰ */
 #define TASK_STACK_SIZE    (4 * 1024)
 
-/** ÈÎÎñÓÅÏÈ¼¶£¨ÖĞµÈ£© */
+/** ä»»åŠ¡ä¼˜å…ˆçº§ï¼ˆä¸­ç­‰ï¼‰ */
 #define TASK_PRIORITY      (tskIDLE_PRIORITY + 2)
 
-/** JPEG Ñ¹ËõÖÊÁ¿²ÎÊı£¨0~100£¬30 ÎªÖĞµÈÑ¹Ëõ£© */
+/** JPEG å‹ç¼©è´¨é‡å‚æ•°ï¼ˆ0~100ï¼Œ30 ä¸ºä¸­ç­‰å‹ç¼©ï¼‰ */
 #define JPEG_QUALITY       30
 
-/** ÎŞÁ÷´«Ê±µÄÈÎÎñĞİÃßÊ±¼ä£¨ºÁÃë£© */
+/** æ— æµä¼ æ—¶çš„ä»»åŠ¡ä¼‘çœ æ—¶é—´ï¼ˆæ¯«ç§’ï¼‰ */
 #define IDLE_SLEEP_MS      100
 
-/** Ö¡¼ä¸ôÄ¿±ê£¨ºÁÃë£¬¶ÔÓ¦ 10 FPS£© */
+/** å¸§é—´éš”ç›®æ ‡ï¼ˆæ¯«ç§’ï¼Œå¯¹åº” 10 FPSï¼‰ */
 #define FRAME_INTERVAL_MS  100
 
-/** ·ÖÆ¬¼äÑÓÊ±£¨ºÁÃë£¬·ÀÖ¹ UDP ¶ÓÁĞÓµ¶Â£© */
+/** åˆ†ç‰‡é—´å»¶æ—¶ï¼ˆæ¯«ç§’ï¼Œé˜²æ­¢ UDP é˜Ÿåˆ—æ‹¥å µï¼‰ */
 #define CHUNK_DELAY_MS     2
 
-/** ĞòÁĞºÅ×î¶àÎª 16 Î»£¨ÓÃÓÚ×·×Ù JPEG Ö¡£© */
+/** åºåˆ—å·æœ€å¤šä¸º 16 ä½ï¼ˆç”¨äºè¿½è¸ª JPEG å¸§ï¼‰ */
 #define SEQ_NUM_MAX        0xFFFF
 
 /* ========================================================================
- * ÄÚ²¿×´Ì¬±äÁ¿
+ * å†…éƒ¨çŠ¶æ€å˜é‡
  * ======================================================================*/
 
-/** ÊÇ·ñÆôÓÃÁËÁ÷´«Êä */
+/** æ˜¯å¦å¯ç”¨äº†æµä¼ è¾“ */
 static volatile bool s_streaming_enabled = false;
 
-/** ±¾Ä£¿é¶ÔÓ¦µÄĞ¡³µ ID£¨ÓÃÓÚĞ­Òé°ü±êÊ¶£© */
+/** æœ¬æ¨¡å—å¯¹åº”çš„å°è½¦ IDï¼ˆç”¨äºåè®®åŒ…æ ‡è¯†ï¼‰ */
 static char s_streamer_car_id[16] = {0};
 
-/** µ±Ç° JPEG ĞòÁĞºÅ£¨Ã¿·¢ÍêÒ»Ö¡ +1£©*/
+/** å½“å‰ JPEG åºåˆ—å·ï¼ˆæ¯å‘å®Œä¸€å¸§ +1ï¼‰*/
 static uint16_t s_seq_num = 0;
 
-/** ÈÎÎñ¾ä±ú£¨±ãÓÚºóĞø¹ÜÀíÈÎÎñÉúÃüÖÜÆÚ£© */
+/** ä»»åŠ¡å¥æŸ„ï¼ˆä¾¿äºåç»­ç®¡ç†ä»»åŠ¡ç”Ÿå‘½å‘¨æœŸï¼‰ */
 static TaskHandle_t s_task_handle = NULL;
 
-/** ·¢ËÍ»¥³âËø£¨±£»¤¶Ô udp_comm_send µÄ²¢·¢·ÃÎÊ£© */
+/** å‘é€äº’æ–¥é”ï¼ˆä¿æŠ¤å¯¹ udp_comm_send çš„å¹¶å‘è®¿é—®ï¼‰ */
 static SemaphoreHandle_t s_send_mutex = NULL;
 
 /* ========================================================================
- * ÄÚ²¿¹¤¾ßº¯Êı
+ * å†…éƒ¨å·¥å…·å‡½æ•°
  * ======================================================================*/
 
 /**
- * @brief °²È«µØ·¢ËÍ UDP Êı¾İ£¨¼ÓËø±£»¤£©
+ * @brief å®‰å…¨åœ°å‘é€ UDP æ•°æ®ï¼ˆåŠ é”ä¿æŠ¤ï¼‰
  *
- * @param data Êı¾İÖ¸Õë
- * @param len  Êı¾İ³¤¶È
- * @return true  ·¢ËÍ³É¹¦
- * @return false ·¢ËÍÊ§°Ü»ò³¬Ê±»ñÈ¡Ëø
+ * @param data æ•°æ®æŒ‡é’ˆ
+ * @param len  æ•°æ®é•¿åº¦
+ * @return true  å‘é€æˆåŠŸ
+ * @return false å‘é€å¤±è´¥æˆ–è¶…æ—¶è·å–é”
  */
 static bool send_udp_safe(const char *data, size_t len)
 {
@@ -103,18 +103,18 @@ static bool send_udp_safe(const char *data, size_t len)
 }
 
 /**
- * @brief ·¢ËÍ META °ü£¨ÔªÊı¾İ£©
+ * @brief å‘é€ META åŒ…ï¼ˆå…ƒæ•°æ®ï¼‰
  *
- * ¸ñÊ½: [V,META,<car_id>,<ĞòÁĞºÅ>,<JPEG×Ü×Ö½ÚÊı>]
+ * æ ¼å¼: [V,META,<car_id>,<åºåˆ—å·>,<JPEGæ€»å­—èŠ‚æ•°>]
  *
- * @param seq_num µ±Ç° JPEG ĞòÁĞºÅ
- * @param jpg_len µ±Ç° JPEG ×Ü´óĞ¡£¨×Ö½Ú£©
- * @return true  ·¢ËÍ³É¹¦
- * @return false ·¢ËÍÊ§°Ü
+ * @param seq_num å½“å‰ JPEG åºåˆ—å·
+ * @param jpg_len å½“å‰ JPEG æ€»å¤§å°ï¼ˆå­—èŠ‚ï¼‰
+ * @return true  å‘é€æˆåŠŸ
+ * @return false å‘é€å¤±è´¥
  */
 static bool send_meta_packet(uint16_t seq_num, size_t jpg_len)
 {
-    /* ¹¹Ôì META °ü£¬¸ñÊ½: [V,META,<car_id>,<seq>,<len>] */
+    /* æ„é€  META åŒ…ï¼Œæ ¼å¼: [V,META,<car_id>,<seq>,<len>] */
     char meta_buf[64];
     int len = snprintf(meta_buf, sizeof(meta_buf), "[V,META,%s,%u,%zu]",
                        s_streamer_car_id, seq_num, jpg_len);
@@ -130,42 +130,42 @@ static bool send_meta_packet(uint16_t seq_num, size_t jpg_len)
 static bool send_chunk_packet(uint32_t seq_num, uint32_t chunk_idx, uint32_t total_chunks, const uint8_t *payload, size_t payload_len)
 {
     char header_buf[128];
-    // 1. Éú³ÉÎÄ±¾Í·
+    // 1. ç”Ÿæˆæ–‡æœ¬å¤´
     int header_len = snprintf(header_buf, sizeof(header_buf), "[V,CHUNK,%s,%lu,%lu,%lu,%zu]\n",
                               s_streamer_car_id, (unsigned long)seq_num,
                               (unsigned long)chunk_idx, (unsigned long)total_chunks, payload_len);
 
-    // 2. ÉêÇëÄÚ´æÆ´½Ó
+    // 2. ç”³è¯·å†…å­˜æ‹¼æ¥
     size_t packet_size = header_len + payload_len;
     uint8_t *packet = (uint8_t *)malloc(packet_size);
     if (packet == NULL) {
-        return false; // ÄÚ´æÉêÇëÊ§°Ü£¬·µ»Ø false
+        return false; // å†…å­˜ç”³è¯·å¤±è´¥ï¼Œè¿”å› false
     }
     
-    memcpy(packet, header_buf, header_len);                  // ·ÅÈëÎÄ±¾Í·
-    memcpy(packet + header_len, payload, payload_len);       // ½ô½Ó×Å·ÅÈëÍ¼Ïñ¶ş½øÖÆ
+    memcpy(packet, header_buf, header_len);                  // æ”¾å…¥æ–‡æœ¬å¤´
+    memcpy(packet + header_len, payload, payload_len);       // ç´§æ¥ç€æ”¾å…¥å›¾åƒäºŒè¿›åˆ¶
 
-    // 3. Ò»´ÎĞÔ·¢ËÍ£¬²¢¼ÇÂ¼·¢ËÍ½á¹û
+    // 3. ä¸€æ¬¡æ€§å‘é€ï¼Œå¹¶è®°å½•å‘é€ç»“æœ
     bool ret = udp_comm_send((const char *)packet, packet_size);
     
-    free(packet); // ÊÍ·ÅÄÚ´æ
+    free(packet); // é‡Šæ”¾å†…å­˜
     
-    return ret;   // ·µ»Ø·¢ËÍ³É¹¦Óë·ñ
+    return ret;   // è¿”å›å‘é€æˆåŠŸä¸å¦
 }
 
 /**
- * @brief ·ÖÆ¬²¢·¢ËÍÒ»¸öÍêÕûµÄ JPEG Ö¡
+ * @brief åˆ†ç‰‡å¹¶å‘é€ä¸€ä¸ªå®Œæ•´çš„ JPEG å¸§
  *
- * Á÷³Ì:
- *  1. ·¢ËÍ META °ü
- *  2. °´ MAX_CHUNK_SIZE ·ÖÆ¬£¬ÖğÆ¬·¢ËÍ
- *  3. Ã¿Æ¬¼äÑÓÊ± CHUNK_DELAY_MS ÒÔ·ÀÓµ¶Â
+ * æµç¨‹:
+ *  1. å‘é€ META åŒ…
+ *  2. æŒ‰ MAX_CHUNK_SIZE åˆ†ç‰‡ï¼Œé€ç‰‡å‘é€
+ *  3. æ¯ç‰‡é—´å»¶æ—¶ CHUNK_DELAY_MS ä»¥é˜²æ‹¥å µ
  *
- * @param seq_num ĞòÁĞºÅ
- * @param jpg_buf JPEG Êı¾İ»º³åÇø
- * @param jpg_len JPEG ×Ü´óĞ¡£¨×Ö½Ú£©
- * @return true  È«²¿·¢ËÍ³É¹¦
- * @return false ÈÎÒâ·¢ËÍÊ§°ÜÔòÁ¢¼´·µ»Ø
+ * @param seq_num åºåˆ—å·
+ * @param jpg_buf JPEG æ•°æ®ç¼“å†²åŒº
+ * @param jpg_len JPEG æ€»å¤§å°ï¼ˆå­—èŠ‚ï¼‰
+ * @return true  å…¨éƒ¨å‘é€æˆåŠŸ
+ * @return false ä»»æ„å‘é€å¤±è´¥åˆ™ç«‹å³è¿”å›
  */
 static bool send_jpeg_frame(uint16_t seq_num, const uint8_t *jpg_buf,
                             size_t jpg_len)
@@ -174,17 +174,17 @@ static bool send_jpeg_frame(uint16_t seq_num, const uint8_t *jpg_buf,
         return false;
     }
 
-    /* µÚ 1 ²½£º·¢ËÍ META °ü */
+    /* ç¬¬ 1 æ­¥ï¼šå‘é€ META åŒ… */
     if (!send_meta_packet(seq_num, jpg_len)) {
         ESP_LOGW(TAG, "failed to send META packet for seq=%u", seq_num);
         return false;
     }
     vTaskDelay(pdMS_TO_TICKS(CHUNK_DELAY_MS));
 
-    /* µÚ 2 ²½£º¼ÆËã·ÖÆ¬×ÜÊı */
+    /* ç¬¬ 2 æ­¥ï¼šè®¡ç®—åˆ†ç‰‡æ€»æ•° */
     uint16_t total_chunks = (uint16_t)((jpg_len + MAX_CHUNK_SIZE - 1) / MAX_CHUNK_SIZE);
 
-    /* µÚ 3 ²½£ºÖğÆ¬·¢ËÍ */
+    /* ç¬¬ 3 æ­¥ï¼šé€ç‰‡å‘é€ */
     for (uint16_t chunk_idx = 0; chunk_idx < total_chunks; chunk_idx++) {
         size_t offset = (size_t)chunk_idx * MAX_CHUNK_SIZE;
         size_t remaining = jpg_len - offset;
@@ -207,20 +207,20 @@ static bool send_jpeg_frame(uint16_t seq_num, const uint8_t *jpg_buf,
 }
 
 /* ========================================================================
- * ºËĞÄÁ÷´«ÈÎÎñ
+ * æ ¸å¿ƒæµä¼ ä»»åŠ¡
  * ======================================================================*/
 
 /**
- * @brief ÊÓÆµÁ÷´«ÊäÖ÷ÈÎÎñ
+ * @brief è§†é¢‘æµä¼ è¾“ä¸»ä»»åŠ¡
  *
- * Ñ­»·Âß¼­:
- *  1. ÈôÎ´ÆôÓÃ ¡ú sleep(100ms) ¡ú ¼ÌĞø¼ì²é
- *  2. ÈôÒÑÆôÓÃ£º
- *     a. »ñÈ¡ÉãÏñÍ·»­Ãæ£¨RGB565£©
- *     b. Èí¼şÑ¹ËõÎª JPEG
- *     c. ·ÖÆ¬·¢ËÍ£¨·ÖÆ¬¼ä¼ÓÑÓÊ±£©
- *     d. ÊÍ·ÅÄÚ´æ
- *     e. Ö¡¼äÑÓÊ±ÒÔ¿ØÖÆÖ¡ÂÊ
+ * å¾ªç¯é€»è¾‘:
+ *  1. è‹¥æœªå¯ç”¨ â†’ sleep(100ms) â†’ ç»§ç»­æ£€æŸ¥
+ *  2. è‹¥å·²å¯ç”¨ï¼š
+ *     a. è·å–æ‘„åƒå¤´ç”»é¢ï¼ˆRGB565ï¼‰
+ *     b. è½¯ä»¶å‹ç¼©ä¸º JPEG
+ *     c. åˆ†ç‰‡å‘é€ï¼ˆåˆ†ç‰‡é—´åŠ å»¶æ—¶ï¼‰
+ *     d. é‡Šæ”¾å†…å­˜
+ *     e. å¸§é—´å»¶æ—¶ä»¥æ§åˆ¶å¸§ç‡
  */
 static void video_stream_task(void *pvParameters)
 {
@@ -228,13 +228,13 @@ static void video_stream_task(void *pvParameters)
     ESP_LOGI(TAG, "video_stream_task started");
 
     while (1) {
-        /* ¼ì²éÊÇ·ñĞèÒªÁ÷´«Êä */
+        /* æ£€æŸ¥æ˜¯å¦éœ€è¦æµä¼ è¾“ */
         if (!s_streaming_enabled) {
             vTaskDelay(pdMS_TO_TICKS(IDLE_SLEEP_MS));
             continue;
         }
 
-        /* 1. »ñÈ¡ÉãÏñÍ·»­Ãæ»º³åÇø */
+        /* 1. è·å–æ‘„åƒå¤´ç”»é¢ç¼“å†²åŒº */
         camera_fb_t *fb = esp_camera_fb_get();
         if (fb == NULL) {
             ESP_LOGW(TAG, "failed to get camera frame");
@@ -242,23 +242,23 @@ static void video_stream_task(void *pvParameters)
             continue;
         }
 
-        /* ?? ºËĞÄĞŞ¸Ä£ºÉãÏñÍ·ÏÖÔÚÖ±½ÓÊä³öÓ²¼ş JPEG£¡
-           ÎÒÃÇ²»ĞèÒª frame2jpg£¬Ö±½Ó°Ñ fb->buf ·¢ËÍ³öÈ¥£¡ */
+        /* ?? æ ¸å¿ƒä¿®æ”¹ï¼šæ‘„åƒå¤´ç°åœ¨ç›´æ¥è¾“å‡ºç¡¬ä»¶ JPEGï¼
+           æˆ‘ä»¬ä¸éœ€è¦ frame2jpgï¼Œç›´æ¥æŠŠ fb->buf å‘é€å‡ºå»ï¼ */
         if (fb->len > 0 && fb->buf != NULL) {
-            // Ö±½Óµ÷ÓÃ·¢ËÍº¯Êı£¬°Ñ fb->buf µ±×÷Í¼Æ¬Êı¾İ·¢×ß
+            // ç›´æ¥è°ƒç”¨å‘é€å‡½æ•°ï¼ŒæŠŠ fb->buf å½“ä½œå›¾ç‰‡æ•°æ®å‘èµ°
             send_jpeg_frame(s_seq_num, fb->buf, fb->len);
 
-            /* Éı¼¶ĞòÁĞºÅ */
+            /* å‡çº§åºåˆ—å· */
             s_seq_num++;
             if (s_seq_num > SEQ_NUM_MAX) {
                 s_seq_num = 0;
             }
         }
 
-        /* 3. ±ØĞë¹é»¹Ó²¼şÉãÏñÍ·»º³åÇø£¬·ñÔòÄÚ´æĞ¹Â©£¡ */
+        /* 3. å¿…é¡»å½’è¿˜ç¡¬ä»¶æ‘„åƒå¤´ç¼“å†²åŒºï¼Œå¦åˆ™å†…å­˜æ³„æ¼ï¼ */
         esp_camera_fb_return(fb);
 
-        /* 4. Ö¡¼äÑÓÊ±£ºÒòÎª²»ĞèÒªÑ¹ËõÁË£¬ÎÒÃÇ°ÑĞİÏ¢Ê±¼äËõ¶Ìµ½ 5ms£¬³å»÷¸ßÖ¡ÂÊ£¡ */
+        /* 4. å¸§é—´å»¶æ—¶ï¼šå› ä¸ºä¸éœ€è¦å‹ç¼©äº†ï¼Œæˆ‘ä»¬æŠŠä¼‘æ¯æ—¶é—´ç¼©çŸ­åˆ° 5msï¼Œå†²å‡»é«˜å¸§ç‡ï¼ */
         vTaskDelay(pdMS_TO_TICKS(10));
     }
 
@@ -266,7 +266,7 @@ static void video_stream_task(void *pvParameters)
 }
 
 /* ========================================================================
- * ¹«¿ª API
+ * å…¬å¼€ API
  * ======================================================================*/
 
 void video_streamer_init(const char *car_id)
@@ -288,18 +288,18 @@ void video_streamer_init(const char *car_id)
         ESP_LOGW(TAG, "empty car_id passed to video_streamer_init");
     }
 
-    /* ´´½¨·¢ËÍ»¥³âËø */
+    /* åˆ›å»ºå‘é€äº’æ–¥é” */
     s_send_mutex = xSemaphoreCreateMutex();
     if (s_send_mutex == NULL) {
         ESP_LOGE(TAG, "failed to create send mutex");
         return;
     }
 
-    /* ³õÊ¼»¯×´Ì¬ */
+    /* åˆå§‹åŒ–çŠ¶æ€ */
     s_streaming_enabled = false;
     s_seq_num = 0;
 
-    /* ´´½¨Á÷´«ÊäÈÎÎñ */
+    /* åˆ›å»ºæµä¼ è¾“ä»»åŠ¡ */
     BaseType_t ret = xTaskCreate(video_stream_task,
                                  "video_stream",
                                  TASK_STACK_SIZE,

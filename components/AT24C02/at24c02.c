@@ -11,7 +11,7 @@
  *
  * 实验平台:正点原子 ESP32-S3 开发板
  * 在线视频:www.yuanzige.com
- * 技术论�?:www.openedv.com
+ * 技术论�?:www.openedv.com
  * 公司网址:www.alientek.com
  * 购买地址:openedv.taobao.com
  *
@@ -25,8 +25,8 @@ static bool s_i2c_attempted = false;
 
 /**
  * @brief       初始化AT24C02
- * @param       �?
- * @retval      ESP_OK:初始化成�?
+ * @param       �?
+ * @retval      ESP_OK:初始化成�?
  */
 esp_err_t at24c02_init(void)
 {
@@ -43,9 +43,9 @@ esp_err_t at24c02_init(void)
 }
 
 /**
- * @brief       在AT24C02指定地址读出一个数�?
+ * @brief       在AT24C02指定地址读出一个数�?
  * @param       addr: 开始读数的地址
- * @retval      读到的数�?
+ * @retval      读到的数�?
  */
 uint8_t at24c02_read_one_byte(uint8_t addr)
 {
@@ -70,10 +70,10 @@ uint8_t at24c02_read_one_byte(uint8_t addr)
 }
 
 /**
- * @brief       在AT24C02指定地址写入一个数�?
+ * @brief       在AT24C02指定地址写入一个数�?
  * @param       addr: 写入数据的目的地址
  * @param       data: 要写入的数据
- * @retval      �?
+ * @retval      �?
  */
 void at24c02_write_one_byte(uint8_t addr, uint8_t data)
 {
@@ -100,12 +100,12 @@ void at24c02_write_one_byte(uint8_t addr, uint8_t data)
 
 /**
  * @brief       检查AT24C02是否正常
- * @note        检测原�?: 在器件的末地址写如0X55, 然后再读�?, 如果读取值为0X55
- *              则表示检测正�?. 否则,则表示检测失�?.
- * @param       �?
- * @retval      检测结�?
- *              0: 检测成�?
- *              1: 检测失�?
+ * @note        检测原�?: 在器件的末地址写如0X55, 然后再读�?, 如果读取值为0X55
+ *              则表示检测正�?. 否则,则表示检测失�?.
+ * @param       �?
+ * @retval      检测结�?
+ *              0: 检测成�?
+ *              1: 检测失�?
  */
 uint8_t at24c02_check(void)
 {
@@ -118,10 +118,10 @@ uint8_t at24c02_check(void)
     {
         return 0;
     }
-    else                                    /* 排除第一次初始化的情�? */
+    else                                    /* 排除第一次初始化的情�? */
     {
-        at24c02_write_one_byte(addr, 0X55); /* 先写入数�? */
-        temp = at24c02_read_one_byte(255);  /* 再读取数�? */
+        at24c02_write_one_byte(addr, 0X55); /* 先写入数�? */
+        temp = at24c02_read_one_byte(255);  /* 再读取数�? */
 
         if (temp == 0X55)
         {
@@ -134,10 +134,10 @@ uint8_t at24c02_check(void)
 
 /**
  * @brief       在AT24C02里面的指定地址开始读出指定个数的数据
- * @param       addr    : 开始读出的地址 �?24c02�?0~255
+ * @param       addr    : 开始读出的地址 �?24c02�?0~255
  * @param       pbuf    : 数据数组首地址
  * @param       datalen : 要读出数据的个数
- * @retval      �?
+ * @retval      �?
  */
 void at24c02_read(uint8_t addr, uint8_t *pbuf, uint8_t datalen)
 {
@@ -149,10 +149,10 @@ void at24c02_read(uint8_t addr, uint8_t *pbuf, uint8_t datalen)
 
 /**
  * @brief       在AT24C02里面的指定地址开始写入指定个数的数据
- * @param       addr    : 开始写入的地址 �?24c02�?0~255
+ * @param       addr    : 开始写入的地址 �?24c02�?0~255
  * @param       pbuf    : 数据数组首地址
  * @param       datalen : 要写入数据的个数
- * @retval      �?
+ * @retval      �?
  */
 void at24c02_write(uint8_t addr, uint8_t *pbuf, uint8_t datalen)
 {

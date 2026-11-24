@@ -11,7 +11,7 @@
  *
  * 实验平台:正点原子 ESP32-S3 开发板
  * 在线视频:www.yuanzige.com
- * 技术论�?:www.openedv.com
+ * 技术论�?:www.openedv.com
  * 公司网址:www.alientek.com
  * 购买地址:openedv.taobao.com
  *
@@ -36,9 +36,9 @@
 
 /* 函数声明 */
 esp_err_t at24c02_init(void);                                       /* 初始化IIC */
-uint8_t at24c02_check(void);                                        /* 检查器�? */
-uint8_t at24c02_read_one_byte(uint8_t addr);                       /* 指定地址读取一个字�? */
-void at24c02_write_one_byte(uint8_t addr,uint8_t data);            /* 指定地址写入一个字�? */
+uint8_t at24c02_check(void);                                        /* 检查器�? */
+uint8_t at24c02_read_one_byte(uint8_t addr);                       /* 指定地址读取一个字�? */
+void at24c02_write_one_byte(uint8_t addr,uint8_t data);            /* 指定地址写入一个字�? */
 void at24c02_write(uint8_t addr, uint8_t *pbuf, uint8_t datalen); /* 从指定地址开始写入指定长度的数据 */
 void at24c02_read(uint8_t addr, uint8_t *pbuf, uint8_t datalen);  /* 从指定地址开始读出指定长度的数据 */
 

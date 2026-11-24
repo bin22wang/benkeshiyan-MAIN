@@ -135,7 +135,7 @@ const proto_topology_t *proto_get_topology(void);
  *
  * Implements the same rule as STM32 Should_Process_Car_Info():
  *   accept = topology.matrix[sender_index][own_index] == 1
- *   (or topology disabled ¡ú always accept)
+ *   (or topology disabled â†’ always accept)
  *
  * @param sender_car_id  e.g. "CAR2"
  * @return true if the data should be processed.

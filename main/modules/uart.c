@@ -1,16 +1,16 @@
 /**
  * @file uart.c
- * @brief ESP32 <-> STM32 ´®¿ÚÇÅ½Ó£¨UART2£¬Òı½Å¼û uart.h ºê¶¨Òå£©
+ * @brief ESP32 <-> STM32 ä¸²å£æ¡¥æ¥ï¼ˆUART2ï¼Œå¼•è„šè§ uart.h å®å®šä¹‰ï¼‰
  *
- * ´®¿ÚÍ¨ĞÅÔ¼¶¨£¨µ±Ç°ÊµÏÖ£©£º
- *  - ÎïÀí²ã£ºUART£¨¼û uart.h ÖĞ USART_UX/Òı½Å¶¨Òå£©
- *  - Ö¡±ß½ç£ºÒÔ»»ĞĞ·û '\n' ×÷ÎªÒ»Ö¡½áÊø£¨¼æÈİ "\r\n"£©
- *  - RX£¨STM32 -> ESP32£©£º"[x,y,heading,vx,vy,vz]\r\n"£¨º¬·½À¨ºÅ£¬6 ¸ö %.3f£©
- *  - TX£¨ESP32 -> STM32£©£º"[vx,vy,vz]\r\n"£¨3 ¸ö %.4f£¬¶ººÅ·Ö¸ô£©
+ * ä¸²å£é€šä¿¡çº¦å®šï¼ˆå½“å‰å®ç°ï¼‰ï¼š
+ *  - ç‰©ç†å±‚ï¼šUARTï¼ˆè§ uart.h ä¸­ USART_UX/å¼•è„šå®šä¹‰ï¼‰
+ *  - å¸§è¾¹ç•Œï¼šä»¥æ¢è¡Œç¬¦ '\n' ä½œä¸ºä¸€å¸§ç»“æŸï¼ˆå…¼å®¹ "\r\n"ï¼‰
+ *  - RXï¼ˆSTM32 -> ESP32ï¼‰ï¼š"[x,y,heading,vx,vy,vz]\r\n"ï¼ˆå«æ–¹æ‹¬å·ï¼Œ6 ä¸ª %.3fï¼‰
+ *  - TXï¼ˆESP32 -> STM32ï¼‰ï¼š"[vx,vy,vz]\r\n"ï¼ˆ3 ä¸ª %.4fï¼Œé€—å·åˆ†éš”ï¼‰
  *
- * Êı¾İÁ÷£º
- *  - RX ÈÎÎñ£ºuart_read_bytes() -> °´×Ö½ÚÆ´½ÓÒ»ĞĞ -> sscanf ½âÎö -> vel_solver_update_own_state()
- *  - TX ÈÎÎñ£ºÖÜÆÚ¼ÆËã vel_solver_compute() -> uart_bridge_send_target() ·¢ËÍÄ¿±êËÙ¶È
+ * æ•°æ®æµï¼š
+ *  - RX ä»»åŠ¡ï¼šuart_read_bytes() -> æŒ‰å­—èŠ‚æ‹¼æ¥ä¸€è¡Œ -> sscanf è§£æ -> vel_solver_update_own_state()
+ *  - TX ä»»åŠ¡ï¼šå‘¨æœŸè®¡ç®— vel_solver_compute() -> uart_bridge_send_target() å‘é€ç›®æ ‡é€Ÿåº¦
  */
 
 #include "uart.h"
@@ -29,29 +29,29 @@
 
 static const char *TAG = "uart_bridge";
 
-/* ·¢ËÍÈÎÎñÖÜÆÚ£¨ms£© */
+/* å‘é€ä»»åŠ¡å‘¨æœŸï¼ˆmsï¼‰ */
 #define UART_TX_INTERVAL_MS 20
 
 /* -----------------------------------------------------------------------
- * TX ÖÇÄÜ·¢ËÍ²ÎÊı
+ * TX æ™ºèƒ½å‘é€å‚æ•°
  *
- * ÓÅ»¯²ßÂÔ£º
- *  1. »îÔ¾Ä£Ê½£º½öµ±ËÙ¶È½ÏÉÏÒ»·¢ËÍÖ¡±ä»¯³¬¹ıËÀÇøÊ±²Å·¢ËÍ£»
- *     ½Ó½üÄ¿±êÎÈ¶¨Ê±Ã¿ KEEPALIVE_FRAMES Ö¡²¹·¢Ò»´Î£¬·ÀÖ¹ STM32 ³¬Ê±ÇåÁã¡£
- *  2. IDLE Ä£Ê½£º½øÈëÊ±Á¢¿Ì·¢Ò»Ö¡ÁãËÙÁîĞ¡³µÍ£Ö¹£»
- *     Ö®ºó½öÃ¿ IDLE_FRAMES Ö¡²¹Ò»´ÎĞÄÌø£¬´ó·ù¼õÉÙÎŞĞ§ UART Á÷Á¿¡£
+ * ä¼˜åŒ–ç­–ç•¥ï¼š
+ *  1. æ´»è·ƒæ¨¡å¼ï¼šä»…å½“é€Ÿåº¦è¾ƒä¸Šä¸€å‘é€å¸§å˜åŒ–è¶…è¿‡æ­»åŒºæ—¶æ‰å‘é€ï¼›
+ *     æ¥è¿‘ç›®æ ‡ç¨³å®šæ—¶æ¯ KEEPALIVE_FRAMES å¸§è¡¥å‘ä¸€æ¬¡ï¼Œé˜²æ­¢ STM32 è¶…æ—¶æ¸…é›¶ã€‚
+ *  2. IDLE æ¨¡å¼ï¼šè¿›å…¥æ—¶ç«‹åˆ»å‘ä¸€å¸§é›¶é€Ÿä»¤å°è½¦åœæ­¢ï¼›
+ *     ä¹‹åä»…æ¯ IDLE_FRAMES å¸§è¡¥ä¸€æ¬¡å¿ƒè·³ï¼Œå¤§å¹…å‡å°‘æ— æ•ˆ UART æµé‡ã€‚
  * ----------------------------------------------------------------------- */
 
-/** ËÙ¶È±ä»¯ËÀÇø£¨m/s »ò rad¡¤s??£©£ºµÍÓÚ´ËÖµÊÓÎª¡¸ÎŞ±ä»¯¡¹£¬Ìø¹ı±¾Ö¡·¢ËÍ */
+/** é€Ÿåº¦å˜åŒ–æ­»åŒºï¼ˆm/s æˆ– radÂ·s??ï¼‰ï¼šä½äºæ­¤å€¼è§†ä¸ºã€Œæ— å˜åŒ–ã€ï¼Œè·³è¿‡æœ¬å¸§å‘é€ */
 #define UART_TX_DEADBAND          0.001f
 
-/** »îÔ¾Ä£Ê½ÎÈ¶¨Ê±µÄ keepalive ¼ä¸ô£¨Ö¡Êı£©£»5 ¡Á 20 ms = 100 ms */
+/** æ´»è·ƒæ¨¡å¼ç¨³å®šæ—¶çš„ keepalive é—´éš”ï¼ˆå¸§æ•°ï¼‰ï¼›5 Ã— 20 ms = 100 ms */
 #define UART_TX_KEEPALIVE_FRAMES  5
 
-/** IDLE Ä£Ê½ÁãËÙ keepalive ¼ä¸ô£¨Ö¡Êı£©£»50 ¡Á 20 ms = 1 s */
+/** IDLE æ¨¡å¼é›¶é€Ÿ keepalive é—´éš”ï¼ˆå¸§æ•°ï¼‰ï¼›50 Ã— 20 ms = 1 s */
 #define UART_TX_IDLE_FRAMES       50
 
-/* ½âÎö»º³å */
+/* è§£æç¼“å†² */
 static char s_line_buf[RX_BUF_SIZE] = {0};
 static size_t s_line_len = 0;
 
@@ -60,7 +60,7 @@ static void uart_tx_task(void *pvParameters);
 
 void uart_bridge_init(uint32_t baudrate)
 {
-    /* UART »ù´¡²ÎÊı£¨8N1£¬ÎŞÓ²¼şÁ÷¿Ø£© */
+    /* UART åŸºç¡€å‚æ•°ï¼ˆ8N1ï¼Œæ— ç¡¬ä»¶æµæ§ï¼‰ */
     uart_config_t uart_config = {0};
     uart_config.baud_rate = (int)baudrate;
     uart_config.data_bits = UART_DATA_8_BITS;
@@ -69,10 +69,10 @@ void uart_bridge_init(uint32_t baudrate)
     uart_config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
     uart_config.source_clk = UART_SCLK_APB;
 
-    /* Ó¦ÓÃ UART ²ÎÊıµ½Ö¸¶¨¶Ë¿Ú */
+    /* åº”ç”¨ UART å‚æ•°åˆ°æŒ‡å®šç«¯å£ */
     ESP_ERROR_CHECK(uart_param_config(USART_UX, &uart_config));
 
-    /* ÉèÖÃ TX/RX Òı½Å£¨RTS/CTS ²»Ê¹ÓÃ£¬ÓÃ UART_PIN_NO_CHANGE£© */
+    /* è®¾ç½® TX/RX å¼•è„šï¼ˆRTS/CTS ä¸ä½¿ç”¨ï¼Œç”¨ UART_PIN_NO_CHANGEï¼‰ */
     ESP_ERROR_CHECK(uart_set_pin(USART_UX,
                                  USART_TX_GPIO_PIN,
                                  USART_RX_GPIO_PIN,
@@ -80,9 +80,9 @@ void uart_bridge_init(uint32_t baudrate)
                                  UART_PIN_NO_CHANGE));
 
     /*
-     * °²×° UART driver£º
-     *  - RX/TX ring buffer£º¸÷ 2*RX_BUF_SIZE
-     *  - ÊÂ¼ş¶ÓÁĞ£º´Ë´¦²»Ê¹ÓÃ£¨queue=NULL£©£¬¸ÄÎªÂÖÑ¯ uart_read_bytes()
+     * å®‰è£… UART driverï¼š
+     *  - RX/TX ring bufferï¼šå„ 2*RX_BUF_SIZE
+     *  - äº‹ä»¶é˜Ÿåˆ—ï¼šæ­¤å¤„ä¸ä½¿ç”¨ï¼ˆqueue=NULLï¼‰ï¼Œæ”¹ä¸ºè½®è¯¢ uart_read_bytes()
      */
     ESP_ERROR_CHECK(uart_driver_install(USART_UX,
                                         RX_BUF_SIZE * 2,
@@ -100,9 +100,9 @@ void uart_bridge_init(uint32_t baudrate)
 
 void uart_bridge_start(void)
 {
-    /* ´´½¨ÊÕ·¢ÈÎÎñ£º
-     *  - RX ÓÅÏÈ¼¶ÂÔ¸ß£¬¾¡Á¿¼°Ê±È¡×ß´®¿Ú»º³å£¬±ÜÃâÒç³ö
-     *  - TX ¶¨Ê±·¢ËÍÄ¿±êËÙ¶È
+    /* åˆ›å»ºæ”¶å‘ä»»åŠ¡ï¼š
+     *  - RX ä¼˜å…ˆçº§ç•¥é«˜ï¼Œå°½é‡åŠæ—¶å–èµ°ä¸²å£ç¼“å†²ï¼Œé¿å…æº¢å‡º
+     *  - TX å®šæ—¶å‘é€ç›®æ ‡é€Ÿåº¦
      */
     xTaskCreate(uart_rx_task, "uart_rx_task", 4096, NULL, 6, NULL);
     xTaskCreate(uart_tx_task, "uart_tx_task", 4096, NULL, 5, NULL);
@@ -111,18 +111,18 @@ void uart_bridge_start(void)
 bool uart_bridge_send_target(float target_vx, float target_vy, float target_vz)
 {
     char msg[96];
-    /* ·¢ËÍ 3 ¸öÄ¿±êËÙ¶È£¬ASCII CSV£¬Ò»ĞĞÒ»Ö¡£¬ÒÔ '\n' ½áÊø */
+    /* å‘é€ 3 ä¸ªç›®æ ‡é€Ÿåº¦ï¼ŒASCII CSVï¼Œä¸€è¡Œä¸€å¸§ï¼Œä»¥ '\n' ç»“æŸ */
     int len = snprintf(msg, sizeof(msg), "[%.4f,%.4f,%.4f]\r\n",
                        target_vx, target_vy, target_vz);
     if (len <= 0) return false;
-    /* uart_write_bytes(): ½«Êı¾İĞ´Èë UART driver µÄ TX ring buffer£¬·µ»ØÊµ¼ÊĞ´Èë×Ö½ÚÊı */
+    /* uart_write_bytes(): å°†æ•°æ®å†™å…¥ UART driver çš„ TX ring bufferï¼Œè¿”å›å®é™…å†™å…¥å­—èŠ‚æ•° */
     int written = uart_write_bytes(USART_UX, msg, len);
     return written == len;
 }
 
 static void handle_state_line(const char *line)
 {
-    /* STM32 ÉÏ±¨¸ñÊ½£¨º¬·½À¨ºÅ£©£º[x,y,heading,vx,vy,vz] */
+    /* STM32 ä¸ŠæŠ¥æ ¼å¼ï¼ˆå«æ–¹æ‹¬å·ï¼‰ï¼š[x,y,heading,vx,vy,vz] */
     float x = 0.0f, y = 0.0f, heading = 0.0f, vx = 0.0f, vy = 0.0f, vz = 0.0f;
     int n = sscanf(line, "[%f,%f,%f,%f,%f,%f]", &x, &y, &heading, &vx, &vy, &vz);
     if (n != 6) {
@@ -132,7 +132,7 @@ static void handle_state_line(const char *line)
 
     vel_solver_update_own_state(x, y, heading, vx, vy, vz);
 
-    /* Ã¿ 50 Ö¡£¨Ô¼ 5 s @10 Hz£©´òÓ¡Ò»´Î£¬±ÜÃâ¸ßÆµÈÕÖ¾ÒıÈëµ÷¶È¶¶¶¯ */
+    /* æ¯ 50 å¸§ï¼ˆçº¦ 5 s @10 Hzï¼‰æ‰“å°ä¸€æ¬¡ï¼Œé¿å…é«˜é¢‘æ—¥å¿—å¼•å…¥è°ƒåº¦æŠ–åŠ¨ */
     static uint32_t s_rx_log_cnt = 0;
     if ((s_rx_log_cnt++ % 50) == 0) {
         ESP_LOGI(TAG, "RX state: x=%.3f y=%.3f yaw=%.1f vx=%.3f vy=%.3f vz=%.3f",
@@ -145,32 +145,32 @@ static void uart_rx_task(void *pvParameters)
     uint8_t rxbuf[128];
     while (1) {
         /*
-         * ÂÖÑ¯¶ÁÈ¡´®¿ÚÊı¾İ£º
-         *  - timeout=50ms£º±ÜÃâÓÀ¾Ã×èÈû£¬±ãÓÚÈÎÎñ±»µ÷¶È/¿´ÃÅ¹·¹Û²â
-         *  - len>0£º±íÊ¾±¾´ÎÈ¡µ½µÄ×Ö½ÚÊı
+         * è½®è¯¢è¯»å–ä¸²å£æ•°æ®ï¼š
+         *  - timeout=50msï¼šé¿å…æ°¸ä¹…é˜»å¡ï¼Œä¾¿äºä»»åŠ¡è¢«è°ƒåº¦/çœ‹é—¨ç‹—è§‚æµ‹
+         *  - len>0ï¼šè¡¨ç¤ºæœ¬æ¬¡å–åˆ°çš„å­—èŠ‚æ•°
          */
         int len = uart_read_bytes(USART_UX, rxbuf, sizeof(rxbuf), pdMS_TO_TICKS(50));
         if (len > 0) {
-            /* °´×Ö½Ú×ö¡°ĞĞ¡±Æ´½Ó£ºÓöµ½ '\n' ÈÏÎªÒ»Ö¡½áÊø£¬½»¸ø handle_state_line() */
+            /* æŒ‰å­—èŠ‚åšâ€œè¡Œâ€æ‹¼æ¥ï¼šé‡åˆ° '\n' è®¤ä¸ºä¸€å¸§ç»“æŸï¼Œäº¤ç»™ handle_state_line() */
             for (int i = 0; i < len; i++) {
                 char c = (char)rxbuf[i];
-                /* ¼æÈİ CRLF£ººöÂÔ '\r' */
+                /* å…¼å®¹ CRLFï¼šå¿½ç•¥ '\r' */
                 if (c == '\r') continue;
                 if (c == '\n') {
-                    /* ĞĞ½áÊø£º²¹ '\0' ĞÎ³É C ×Ö·û´® */
+                    /* è¡Œç»“æŸï¼šè¡¥ '\0' å½¢æˆ C å­—ç¬¦ä¸² */
                     s_line_buf[s_line_len] = '\0';
                     if (s_line_len > 0) {
-                        /* ½âÎö²¢Ó¦´ğ£¨ACK/ERR ÔÚ handle_state_line ÄÚ·¢ËÍ£© */
+                        /* è§£æå¹¶åº”ç­”ï¼ˆACK/ERR åœ¨ handle_state_line å†…å‘é€ï¼‰ */
                         handle_state_line(s_line_buf);
                     }
-                    /* ÖØÖÃĞĞ»º³å£¬¿ªÊ¼½ÓÊÕÏÂÒ»ĞĞ */
+                    /* é‡ç½®è¡Œç¼“å†²ï¼Œå¼€å§‹æ¥æ”¶ä¸‹ä¸€è¡Œ */
                     s_line_len = 0;
                     continue;
                 }
                 if (s_line_len < sizeof(s_line_buf) - 1) {
                     s_line_buf[s_line_len++] = c;
                 } else {
-                    /* ĞĞ¹ı³¤£¨¿ÉÄÜ¶Ô¶ËĞ­ÒéÒì³£/¶ª×Ö½Ú£©£º¶ªÆúµ±Ç°ĞĞ£¬±ÜÃâÔ½½ç */
+                    /* è¡Œè¿‡é•¿ï¼ˆå¯èƒ½å¯¹ç«¯åè®®å¼‚å¸¸/ä¸¢å­—èŠ‚ï¼‰ï¼šä¸¢å¼ƒå½“å‰è¡Œï¼Œé¿å…è¶Šç•Œ */
                     s_line_len = 0;
                 }
             }
@@ -181,7 +181,7 @@ static void uart_rx_task(void *pvParameters)
 static void uart_tx_task(void *pvParameters)
 {
     uint32_t tick          = 0;
-    uint32_t frames_no_send = 0;  /* ¾àÉÏ´ÎÊµ¼Ê·¢ËÍÒÑ¹ıÈ¥µÄÖ¡Êı */
+    uint32_t frames_no_send = 0;  /* è·ä¸Šæ¬¡å®é™…å‘é€å·²è¿‡å»çš„å¸§æ•° */
     float    last_vx = 0.0f, last_vy = 0.0f, last_vz = 0.0f;
     bool     last_valid = false;
 
@@ -196,19 +196,19 @@ static void uart_tx_task(void *pvParameters)
 
         if (!valid) {
             /*
-             * IDLE Ä£Ê½£º
-             *  - ¸Õ´Ó»îÔ¾ÇĞ»»½ø IDLE ¡ú Á¢¼´·¢Ò»Ö¡ÁãËÙ£¬Áî STM32 Á¢¿ÌÍ£³µ
-             *  - Ö®ºóÃ¿ UART_TX_IDLE_FRAMES£¨1 s£©²¹Ò»´ÎĞÄÌø
-             *    £¨Èô STM32 ÓĞ´®¿Ú³¬Ê±±£»¤£¬´ËĞÄÌø¿É·ÀÖ¹Îó´¥·¢£©
+             * IDLE æ¨¡å¼ï¼š
+             *  - åˆšä»æ´»è·ƒåˆ‡æ¢è¿› IDLE â†’ ç«‹å³å‘ä¸€å¸§é›¶é€Ÿï¼Œä»¤ STM32 ç«‹åˆ»åœè½¦
+             *  - ä¹‹åæ¯ UART_TX_IDLE_FRAMESï¼ˆ1 sï¼‰è¡¥ä¸€æ¬¡å¿ƒè·³
+             *    ï¼ˆè‹¥ STM32 æœ‰ä¸²å£è¶…æ—¶ä¿æŠ¤ï¼Œæ­¤å¿ƒè·³å¯é˜²æ­¢è¯¯è§¦å‘ï¼‰
              */
             should_send = last_valid || (frames_no_send >= UART_TX_IDLE_FRAMES);
         } else {
             /*
-             * »îÔ¾¿ØÖÆÄ£Ê½£º
-             *  - ¸Õ´Ó IDLE ÇĞ»»½øÀ´ ¡ú Á¢¼´·¢ËÍ
-             *  - ËÙ¶È½ÏÉÏÖ¡±ä»¯ > UART_TX_DEADBAND ¡ú Á¢¼´·¢ËÍ
-             *  - ËÙ¶ÈÎÈ¶¨£¨ËÀÇøÄÚ£¬ÈçÒÑµ½´ïÄ¿±êµã£©¡ú Ã¿ 100 ms ²¹Ò»Ö¡ keepalive£¬
-             *    ·ÀÖ¹ STM32 Òò³¬Ê±½«ËÙ¶ÈÇåÁã£¬Í¬Ê±±ÜÃâ¶ÔÎÈ¶¨µç»ú·´¸´Ğ´ÏàÍ¬Öµ
+             * æ´»è·ƒæ§åˆ¶æ¨¡å¼ï¼š
+             *  - åˆšä» IDLE åˆ‡æ¢è¿›æ¥ â†’ ç«‹å³å‘é€
+             *  - é€Ÿåº¦è¾ƒä¸Šå¸§å˜åŒ– > UART_TX_DEADBAND â†’ ç«‹å³å‘é€
+             *  - é€Ÿåº¦ç¨³å®šï¼ˆæ­»åŒºå†…ï¼Œå¦‚å·²åˆ°è¾¾ç›®æ ‡ç‚¹ï¼‰â†’ æ¯ 100 ms è¡¥ä¸€å¸§ keepaliveï¼Œ
+             *    é˜²æ­¢ STM32 å› è¶…æ—¶å°†é€Ÿåº¦æ¸…é›¶ï¼ŒåŒæ—¶é¿å…å¯¹ç¨³å®šç”µæœºåå¤å†™ç›¸åŒå€¼
              */
             bool mode_changed = !last_valid;
             bool vel_changed  = fabsf(tx_vx - last_vx) > UART_TX_DEADBAND ||
@@ -238,7 +238,7 @@ static void uart_tx_task(void *pvParameters)
         last_valid = valid;
         tick++;
 
-        /* ¹Ì¶¨½ÚÅÄ£¨20 ms£©£ºÈÎÎñ»½ĞÑÆµÂÊ²»±ä£¬Ö»ÊÇÓĞÊ±Ìø¹ı·¢ËÍ */
+        /* å›ºå®šèŠ‚æ‹ï¼ˆ20 msï¼‰ï¼šä»»åŠ¡å”¤é†’é¢‘ç‡ä¸å˜ï¼Œåªæ˜¯æœ‰æ—¶è·³è¿‡å‘é€ */
         vTaskDelay(pdMS_TO_TICKS(UART_TX_INTERVAL_MS));
     }
 }

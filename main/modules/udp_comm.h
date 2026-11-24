@@ -1,9 +1,9 @@
 /**
  * @file udp_comm.h
- * @brief UDP ͨ��ģ��ͷ�ļ�
+ * @brief UDP 通信模块头文件
  *
- * �ṩ UDP socket �ĳ�ʼ�������ݷ��͡����������������ص�ע��ӿڡ�
- * �ϲ�ֻ��ע��һ���ص��������������յ� UDP ����ʱ��֪ͨ��
+ * 提供 UDP socket 的初始化、数据发送、接收任务启动及回调注册接口。
+ * 上层只需注册一个回调函数，即可在收到 UDP 数据时被通知。
  */
 
 #pragma once
@@ -17,64 +17,64 @@ extern "C" {
 #endif
 
 /**
- * @brief UDP ���ջص���������
+ * @brief UDP 接收回调函数类型
  *
- * �����յ� UDP ���ݰ�ʱ��ģ���ڲ������ô˻ص���
+ * 当接收到 UDP 数据包时，模块内部将调用此回调。
  *
- * �ص����������ģ��� udp_comm.c �ڲ������Ľ�������udp_rx_task���е��ã�
- * ����������жϻص�����Ҳ�������ڴ�����ʱ������/��ʱ������������������� UDP ���գ���
+ * 回调触发上下文：在 udp_comm.c 内部创建的接收任务（udp_rx_task）中调用，
+ * 因此它不是中断回调；但也不建议在此做长时间阻塞/耗时操作（否则会拖慢后续 UDP 接收）。
  *
- * @param data   ���յ������ݻ�����ָ�루ʵ���л���ⲹһ�� '\0'�����ڰ��ַ�����־��ӡ��
- * @param len    ���ݳ��ȣ��ֽ�����������ֹ����
- * @param src_ip ���ݰ���Դ IP ��ַ�ַ������� "192.168.31.46"��
- * @param src_port ���ݰ���Դ�˿ں�
+ * @param data   接收到的数据缓冲区指针（实现中会额外补一个 '\0'，便于按字符串日志打印）
+ * @param len    数据长度（字节数，不含终止符）
+ * @param src_ip 数据包来源 IP 地址字符串（如 "192.168.31.46"）
+ * @param src_port 数据包来源端口号
  */
 typedef void (*udp_rx_callback_t)(const char *data, size_t len,
                                   const char *src_ip, uint16_t src_port);
 
 /**
- * @brief ��ʼ�� UDP ͨ��ģ��
+ * @brief 初始化 UDP 通信模块
  *
- * ������²�����
- *  1. ���� UDP socket
- *  2. �󶨱��ؽ��ն˿�
- *  3. ���ý��ճ�ʱ����ֹ recvfrom ��������
- *  4. ������̨��������
+ * 完成以下操作：
+ *  1. 创建 UDP socket
+ *  2. 绑定本地接收端口
+ *  3. 设置接收超时，防止 recvfrom 永久阻塞
+ *  4. 启动后台接收任务
  *
- * @param server_ip   ������ IP ��ַ�ַ������� "192.168.31.46"��
- * @param server_port �������˿ںţ�����Ŀ��˿ڣ�
- * @param local_port  ���ذ󶨶˿ںţ����ڽ������ݣ�
+ * @param server_ip   服务器 IP 地址字符串（如 "192.168.31.46"）
+ * @param server_port 服务器端口号（发送目标端口）
+ * @param local_port  本地绑定端口号（用于接收数据）
  *
- * @note һ��Ӧ�����������Wi-Fi �����Ӳ���ȡ�� IP�����ٳ�ʼ�� UDP socket��
- * @return true  ��ʼ���ɹ�
- * @return false ��ʼ��ʧ�ܣ�socket/bind ����
+ * @note 一般应在网络就绪（Wi-Fi 已连接并获取到 IP）后再初始化 UDP socket。
+ * @return true  初始化成功
+ * @return false 初始化失败（socket/bind 错误）
  */
 bool udp_comm_init(const char *server_ip, uint16_t server_port,
                    uint16_t local_port);
 
 /**
- * @brief ����������� UDP ����
+ * @brief 向服务器发送 UDP 数据
  *
- * ������ͨ���ѳ�ʼ���� socket ���͵���������
- * ������ udp_comm_init() �ɹ�����á�
+ * 将数据通过已初始化的 socket 发送到服务器。
+ * 必须在 udp_comm_init() 成功后调用。
  *
- * @param data Ҫ���͵�����ָ��
- * @param len  ���ݳ��ȣ��ֽ�����
+ * @param data 要发送的数据指针
+ * @param len  数据长度（字节数）
  *
- * @note �����������ܲ������� udp_comm_send()���������ϲ�ӻ����������л���
- *       �Ա��Ⲣ��дͬһ�� socket ������Ǳ�ھ�̬��
- * @return true  ���ͳɹ�
- * @return false ����ʧ�ܣ�socket δ��ʼ���� sendto ����
+ * @note 若多个任务可能并发调用 udp_comm_send()，建议在上层加互斥锁做串行化，
+ *       以避免并发写同一个 socket 带来的潜在竞态。
+ * @return true  发送成功
+ * @return false 发送失败（socket 未初始化或 sendto 错误）
  */
 bool udp_comm_send(const char *data, size_t len);
 
 /**
- * @brief ע�� UDP ���ջص�����
+ * @brief 注册 UDP 接收回调函数
  *
- * ÿ���յ� UDP ����ʱ��ģ�齫������ע��Ļص���
- * ���� udp_comm_init() ֮ǰ��֮����á�
+ * 每次收到 UDP 数据时，模块将调用已注册的回调。
+ * 可在 udp_comm_init() 之前或之后调用。
  *
- * @param cb �ص�����ָ�룬�� NULL ��ע���ص�
+ * @param cb 回调函数指针，传 NULL 可注销回调
  */
 void udp_comm_register_rx_callback(udp_rx_callback_t cb);
 

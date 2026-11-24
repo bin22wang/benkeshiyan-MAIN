@@ -1,14 +1,14 @@
 /**
  * @file app_main.c
- * @brief Ó¦ÓÃ³ÌĞòÈë¿ÚÎÄ¼ş
+ * @brief åº”ç”¨ç¨‹åºå…¥å£æ–‡ä»¶
  *
- * ¸ºÔğĞ­µ÷¸÷¹¦ÄÜÄ£¿éµÄ³õÊ¼»¯Ë³Ğò£¬²¢×¢²áÒµÎñ»Øµ÷£º
- *  1. NVS ³õÊ¼»¯£¨´æ´¢ Wi-Fi ÅäÖÃµÈ³Ö¾ÃÊı¾İ£©
- *  2. LED Ä£¿é³õÊ¼»¯£¨½øÈë¿ìËÙÉÁË¸£¬Ö¸Ê¾Î´Á¬½Ó×´Ì¬£©
- *  3. Wi-Fi Ä£¿é³õÊ¼»¯£¨×èÈûÖÁÁ¬½Ó³É¹¦»ò³¬Ê±£©
- *  4. UDP Í¨ĞÅÄ£¿é³õÊ¼»¯£¨°ó¶¨¶Ë¿Ú£¬Æô¶¯½ÓÊÕÈÎÎñ£©
- *  5. ×¢²á UDP ½ÓÊÕ»Øµ÷£¨´¦Àí·şÎñÆ÷ÏÂ·¢µÄÍØÆË/¿ØÖÆ/±à¶ÓÖ¸Áî£©
- *  6. Æô¶¯±¾³µ×´Ì¬ÉÏ±¨ÈÎÎñ£¨10 Hz£¬¸ñÊ½ CAR_ID:x,y,yaw,vol,vx,vy,vz£©
+ * è´Ÿè´£åè°ƒå„åŠŸèƒ½æ¨¡å—çš„åˆå§‹åŒ–é¡ºåºï¼Œå¹¶æ³¨å†Œä¸šåŠ¡å›è°ƒï¼š
+ *  1. NVS åˆå§‹åŒ–ï¼ˆå­˜å‚¨ Wi-Fi é…ç½®ç­‰æŒä¹…æ•°æ®ï¼‰
+ *  2. LED æ¨¡å—åˆå§‹åŒ–ï¼ˆè¿›å…¥å¿«é€Ÿé—ªçƒï¼ŒæŒ‡ç¤ºæœªè¿æ¥çŠ¶æ€ï¼‰
+ *  3. Wi-Fi æ¨¡å—åˆå§‹åŒ–ï¼ˆé˜»å¡è‡³è¿æ¥æˆåŠŸæˆ–è¶…æ—¶ï¼‰
+ *  4. UDP é€šä¿¡æ¨¡å—åˆå§‹åŒ–ï¼ˆç»‘å®šç«¯å£ï¼Œå¯åŠ¨æ¥æ”¶ä»»åŠ¡ï¼‰
+ *  5. æ³¨å†Œ UDP æ¥æ”¶å›è°ƒï¼ˆå¤„ç†æœåŠ¡å™¨ä¸‹å‘çš„æ‹“æ‰‘/æ§åˆ¶/ç¼–é˜ŸæŒ‡ä»¤ï¼‰
+ *  6. å¯åŠ¨æœ¬è½¦çŠ¶æ€ä¸ŠæŠ¥ä»»åŠ¡ï¼ˆ10 Hzï¼Œæ ¼å¼ CAR_ID:x,y,yaw,vol,vx,vy,vzï¼‰
  */
 
 #include <stdio.h>
@@ -25,7 +25,7 @@
 #include "esp_mac.h"
 #include "driver/gpio.h"
 
-/* ¸÷¹¦ÄÜÄ£¿éÍ·ÎÄ¼ş */
+/* å„åŠŸèƒ½æ¨¡å—å¤´æ–‡ä»¶ */
 #include "modules/wifi_mgr.h"
 #include "modules/udp_comm.h"
 #include "modules/led_ctrl.h"
@@ -39,29 +39,29 @@
 #include "disp_mgr.h"
 #include "xl9555.h"
 
-/* ========== Ä£¿éÈÕÖ¾±êÇ© ========== */
+/* ========== æ¨¡å—æ—¥å¿—æ ‡ç­¾ ========== */
 static const char *TAG = "app_main";
 
 /* Display role state (formation leader/follower overrides manual/position). */
 static sys_mode_t s_role_mode = SYS_MODE_IDLE;
 
-/* ========== UDP Í¨ĞÅÅäÖÃ ========== */
-/** ·şÎñÆ÷ IP µØÖ· */
-//#define SERVER_IP       "192.168.31.46" // °×Èğ
-#define SERVER_IP       "192.168.31.91" // Íõ±ó 
-//#define SERVER_IP       "192.168.31.234" // ÍõºÆ
-/** ·şÎñÆ÷¼àÌı¶Ë¿Ú£¨ESP32 Ïò´Ë¶Ë¿Ú·¢ËÍÊı¾İ£© */
+/* ========== UDP é€šä¿¡é…ç½® ========== */
+/** æœåŠ¡å™¨ IP åœ°å€ */
+//#define SERVER_IP       "192.168.31.46" // ç™½ç‘
+#define SERVER_IP       "192.168.31.91" // ç‹æ–Œ 
+//#define SERVER_IP       "192.168.31.234" // ç‹æµ©
+/** æœåŠ¡å™¨ç›‘å¬ç«¯å£ï¼ˆESP32 å‘æ­¤ç«¯å£å‘é€æ•°æ®ï¼‰ */
 #define SERVER_PORT     8080
-/** ±¾µØ°ó¶¨¶Ë¿Ú£¨ESP32 ÔÚ´Ë¶Ë¿Ú½ÓÊÕ·şÎñÆ÷Êı¾İ£© */
+/** æœ¬åœ°ç»‘å®šç«¯å£ï¼ˆESP32 åœ¨æ­¤ç«¯å£æ¥æ”¶æœåŠ¡å™¨æ•°æ®ï¼‰ */
 #define LOCAL_PORT      8081
-/** ±¾³µ ID£¨ÓÉ MAC µØÖ·Ó³ÉäµÃµ½£© */
+/** æœ¬è½¦ IDï¼ˆç”± MAC åœ°å€æ˜ å°„å¾—åˆ°ï¼‰ */
 #define OWN_CAR_ID_DEFAULT "CAR1"
 
-/* ========== MAC -> ³µÁ¾ ID Ó³Éä±í ========== */
+/* ========== MAC -> è½¦è¾† ID æ˜ å°„è¡¨ ========== */
 /**
- * @brief MAC µØÖ·µ½³µÁ¾ ID µÄÓ³ÉäÌõÄ¿
+ * @brief MAC åœ°å€åˆ°è½¦è¾† ID çš„æ˜ å°„æ¡ç›®
  *
- * ÓÃÓÚÔÚ¶à³µ³¡¾°ÏÂ£¬¸ù¾İÉè±¸×ÔÉíµÄ Wi-Fi STA MAC ÍÆµ¼³ö±¾³µ ID¡£
+ * ç”¨äºåœ¨å¤šè½¦åœºæ™¯ä¸‹ï¼Œæ ¹æ®è®¾å¤‡è‡ªèº«çš„ Wi-Fi STA MAC æ¨å¯¼å‡ºæœ¬è½¦ IDã€‚
  */
 typedef struct {
     uint8_t mac[6];
@@ -82,80 +82,80 @@ static const char *lookup_car_id_by_mac(const uint8_t mac[6])
             return k_mac_car_map[i].car_id;
         }
     }
-    /* Î´Æ¥Åäµ½ÒÑÖª MAC£º»ØÍËµ½Ä¬ÈÏ³µÁ¾ ID£¨±ÜÃâ¿ÕÖ¸Õë/Î´Öª ID Ó°ÏìÒµÎñÂß¼­£© */
+    /* æœªåŒ¹é…åˆ°å·²çŸ¥ MACï¼šå›é€€åˆ°é»˜è®¤è½¦è¾† IDï¼ˆé¿å…ç©ºæŒ‡é’ˆ/æœªçŸ¥ ID å½±å“ä¸šåŠ¡é€»è¾‘ï¼‰ */
     return OWN_CAR_ID_DEFAULT;
 }
 
-/* ========== ×´Ì¬ÉÏ±¨¼ä¸ô ========== */
-/** Ïò·şÎñÆ÷ÉÏ±¨±¾³µ×´Ì¬µÄ¼ä¸ô£¨ºÁÃë£©£»100 ms = 10 Hz£¬Óë STM32 ¶Ë·¢ËÍÆµÂÊÒ»ÖÂ */
+/* ========== çŠ¶æ€ä¸ŠæŠ¥é—´éš” ========== */
+/** å‘æœåŠ¡å™¨ä¸ŠæŠ¥æœ¬è½¦çŠ¶æ€çš„é—´éš”ï¼ˆæ¯«ç§’ï¼‰ï¼›100 ms = 10 Hzï¼Œä¸ STM32 ç«¯å‘é€é¢‘ç‡ä¸€è‡´ */
 #define STATE_REPORT_INTERVAL_MS   100
 
-/** ÏÔÊ¾×´Ì¬¼ì²é¼ä¸ô£¨ºÁÃë£© */
+/** æ˜¾ç¤ºçŠ¶æ€æ£€æŸ¥é—´éš”ï¼ˆæ¯«ç§’ï¼‰ */
 #define DISP_UPDATE_INTERVAL_MS    50
 
-/** BOOT °´¼üÅäÖÃ */
+/** BOOT æŒ‰é”®é…ç½® */
 #define BOOT_KEY_GPIO              GPIO_NUM_0
 #define BOOT_KEY_ACTIVE_LEVEL      0
 #define BOOT_KEY_DEBOUNCE_MS       30
 
-/** LCD/XL9555 ×Ô¼ì¿ª¹Ø */
+/** LCD/XL9555 è‡ªæ£€å¼€å…³ */
 #define LCD_DIAG_SELF_TEST         0
 
-/* ========== ÒµÎñ»Øµ÷º¯Êı ========== */
+/* ========== ä¸šåŠ¡å›è°ƒå‡½æ•° ========== */
 
 /**
- * @brief UDP ½ÓÊÕ»Øµ÷£º´¦Àí·şÎñÆ÷ÏÂ·¢µÄÖ¸Áî
+ * @brief UDP æ¥æ”¶å›è°ƒï¼šå¤„ç†æœåŠ¡å™¨ä¸‹å‘çš„æŒ‡ä»¤
  *
- * µ± UDP Ä£¿éÊÕµ½Êı¾İºó£¬»áµ÷ÓÃ´Ëº¯Êı¡£
- * Ä¿Ç°Ö§³Ö½âÎöÁ½ÖÖÏûÏ¢¸ñÊ½£º
- *  - "TOPOLOGY:..."        ÍØÆË¾ØÕóÊı¾İ£¬¹©ºóĞøÂ·¾¶¹æ»®Ê¹ÓÃ
- *  - "TOPOLOGY_TOGGLE:..." ÍØÆËÇĞ»»Ö¸Áî
+ * å½“ UDP æ¨¡å—æ”¶åˆ°æ•°æ®åï¼Œä¼šè°ƒç”¨æ­¤å‡½æ•°ã€‚
+ * ç›®å‰æ”¯æŒè§£æä¸¤ç§æ¶ˆæ¯æ ¼å¼ï¼š
+ *  - "TOPOLOGY:..."        æ‹“æ‰‘çŸ©é˜µæ•°æ®ï¼Œä¾›åç»­è·¯å¾„è§„åˆ’ä½¿ç”¨
+ *  - "TOPOLOGY_TOGGLE:..." æ‹“æ‰‘åˆ‡æ¢æŒ‡ä»¤
  *
- * @param data     ½ÓÊÕµ½µÄ×Ö·û´®Êı¾İ
- * @param len      Êı¾İ³¤¶È£¨×Ö½Ú£©
- * @param src_ip   À´Ô´ IP µØÖ·
- * @param src_port À´Ô´¶Ë¿ÚºÅ
+ * @param data     æ¥æ”¶åˆ°çš„å­—ç¬¦ä¸²æ•°æ®
+ * @param len      æ•°æ®é•¿åº¦ï¼ˆå­—èŠ‚ï¼‰
+ * @param src_ip   æ¥æº IP åœ°å€
+ * @param src_port æ¥æºç«¯å£å·
  */
 static void on_udp_data_received(const char *data, size_t len,
                                  const char *src_ip, uint16_t src_port)
 {
     /*
-     * ×¢Òâ£º¸Ã»Øµ÷ÔËĞĞÔÚ UDP ½ÓÊÕÈÎÎñ£¨udp_rx_task£©ÉÏÏÂÎÄ¡£
-     * ½¨Òé±£³Ö´¦ÀíÇáÁ¿£»ÈôĞèÒª×ö½ÏÖØÂß¼­£¬¿É¸ÄÎªÍ¶µİ¶ÓÁĞ¸øÆäËûÈÎÎñ´¦Àí¡£
+     * æ³¨æ„ï¼šè¯¥å›è°ƒè¿è¡Œåœ¨ UDP æ¥æ”¶ä»»åŠ¡ï¼ˆudp_rx_taskï¼‰ä¸Šä¸‹æ–‡ã€‚
+     * å»ºè®®ä¿æŒå¤„ç†è½»é‡ï¼›è‹¥éœ€è¦åšè¾ƒé‡é€»è¾‘ï¼Œå¯æ”¹ä¸ºæŠ•é€’é˜Ÿåˆ—ç»™å…¶ä»–ä»»åŠ¡å¤„ç†ã€‚
      */
     ESP_LOGI(TAG, "[RX] from %s:%u, len=%d", src_ip, src_port, (int)len);
 
-    /* ½«Ô­Ê¼ UDP ¸ºÔØ½»¸øĞ­Òé½âÎöÆ÷£¨½âÎö½á¹ûÍ¨¹ı consume/get ½Ó¿ÚÈ¡³ö£© */
+    /* å°†åŸå§‹ UDP è´Ÿè½½äº¤ç»™åè®®è§£æå™¨ï¼ˆè§£æç»“æœé€šè¿‡ consume/get æ¥å£å–å‡ºï¼‰ */
     proto_parse_message(data, len);
     recon_mgr_handle_message(data, len);
 
     /* ------------------------------------------------------------------
-     * ÂÖÑ¯½âÎö½á¹û²¢Ö´ĞĞ¶ÔÓ¦¶¯×÷
+     * è½®è¯¢è§£æç»“æœå¹¶æ‰§è¡Œå¯¹åº”åŠ¨ä½œ
      * ------------------------------------------------------------------ */
 
-    /* --- MOVE Ö¸Áî£¨Í¨³£ÊÇ·¢¸øÄ³¸ö car_id µÄµãÎ»/º½ÏòÄ¿±ê£© --- */
+    /* --- MOVE æŒ‡ä»¤ï¼ˆé€šå¸¸æ˜¯å‘ç»™æŸä¸ª car_id çš„ç‚¹ä½/èˆªå‘ç›®æ ‡ï¼‰ --- */
     proto_cmd_move_t mv;
     if (proto_consume_move_cmd(&mv)) {
         ESP_LOGI(TAG, "[CMD_MOVE] target=(%.3f, %.3f), yaw=%.1f",
                  mv.x, mv.y, mv.yaw);
         led_ctrl_set_mode(LED_MODE_ACTIVE);
         /*
-         * vel_solver_set_position_target() ÒÑÔÚ proto_parse_message() ÄÚ²¿Íê³Éµ÷ÓÃ£»
-         * ËÙ¶ÈÊä³öÓÉ uart_tx_task Ã¿ 20 ms ÖÜÆÚĞÔÏÂ·¢¸ø STM32£¬´Ë´¦ÎŞĞè¶îÍâ²Ù×÷¡£
+         * vel_solver_set_position_target() å·²åœ¨ proto_parse_message() å†…éƒ¨å®Œæˆè°ƒç”¨ï¼›
+         * é€Ÿåº¦è¾“å‡ºç”± uart_tx_task æ¯ 20 ms å‘¨æœŸæ€§ä¸‹å‘ç»™ STM32ï¼Œæ­¤å¤„æ— éœ€é¢å¤–æ“ä½œã€‚
          */
     }
 
-    /* --- ±à¶Ó/½ÇÉ«Ïà¹ØÖ¸Áî --- */
+    /* --- ç¼–é˜Ÿ/è§’è‰²ç›¸å…³æŒ‡ä»¤ --- */
     proto_cmd_formation_t fm;
     if (proto_consume_formation_cmd(&fm)) {
         /*
-         * vel_solver Ä£Ê½ÇĞ»»ÒÑÔÚ proto_parse_message() ÄÚ²¿Íê³É£»
-         * ´Ë´¦Ö»Ğè¸ù¾İ½ÇÉ«¸üĞÂ LED ×´Ì¬£¬ËÙ¶ÈÊä³öÓÉ uart_tx_task ×Ô¶¯ÏÂ·¢¸ø STM32¡£
+         * vel_solver æ¨¡å¼åˆ‡æ¢å·²åœ¨ proto_parse_message() å†…éƒ¨å®Œæˆï¼›
+         * æ­¤å¤„åªéœ€æ ¹æ®è§’è‰²æ›´æ–° LED çŠ¶æ€ï¼Œé€Ÿåº¦è¾“å‡ºç”± uart_tx_task è‡ªåŠ¨ä¸‹å‘ç»™ STM32ã€‚
          */
         switch (fm.type) {
             case FORMATION_CMD_STOP:
                 ESP_LOGI(TAG, "[CMD_FORMATION] STOP");
-                led_ctrl_set_mode(LED_MODE_CONNECTED);  /* ±à¶Ó½áÊø£¬»Ö¸´´ıÃü×´Ì¬ */
+                led_ctrl_set_mode(LED_MODE_CONNECTED);  /* ç¼–é˜Ÿç»“æŸï¼Œæ¢å¤å¾…å‘½çŠ¶æ€ */
                 s_role_mode = SYS_MODE_IDLE;
                 break;
             case FORMATION_CMD_SET_LEADER:
@@ -178,28 +178,28 @@ static void on_udp_data_received(const char *data, size_t len,
         }
     }
 
-    /* --- ÍØÆËĞÅÏ¢£ºµ±Ç°½öÓÃÓÚÖ¸Ê¾µÆ×´Ì¬Õ¹Ê¾ --- */
+    /* --- æ‹“æ‰‘ä¿¡æ¯ï¼šå½“å‰ä»…ç”¨äºæŒ‡ç¤ºç¯çŠ¶æ€å±•ç¤º --- */
     const proto_topology_t *topo = proto_get_topology();
     if (topo->enabled) {
         led_ctrl_set_mode(LED_MODE_ACTIVE);
     }
 }
 
-/* ========== ±¾³µ×´Ì¬ÉÏ±¨ÈÎÎñ ========== */
+/* ========== æœ¬è½¦çŠ¶æ€ä¸ŠæŠ¥ä»»åŠ¡ ========== */
 
 /**
- * @brief ×´Ì¬ÉÏ±¨ÈÎÎñ£º½« STM32 ÉÏ±¨µÄ±¾³µÎ»×ËÊµÊ±×ª·¢¸ø·şÎñÆ÷
+ * @brief çŠ¶æ€ä¸ŠæŠ¥ä»»åŠ¡ï¼šå°† STM32 ä¸ŠæŠ¥çš„æœ¬è½¦ä½å§¿å®æ—¶è½¬å‘ç»™æœåŠ¡å™¨
  *
- * ÉÏ±¨ÆµÂÊ£º10 Hz£¨STATE_REPORT_INTERVAL_MS = 100 ms£©
- * ÉÏ±¨¸ñÊ½£¨Óë STM32 ¶Ë ESP8266_SendStatus_UDP_Reliable ±£³ÖÒ»ÖÂ£©£º
+ * ä¸ŠæŠ¥é¢‘ç‡ï¼š10 Hzï¼ˆSTATE_REPORT_INTERVAL_MS = 100 msï¼‰
+ * ä¸ŠæŠ¥æ ¼å¼ï¼ˆä¸ STM32 ç«¯ ESP8266_SendStatus_UDP_Reliable ä¿æŒä¸€è‡´ï¼‰ï¼š
  *   "CAR_ID:x,y,yaw,volume,vx,vy,vz"
- * ÆäÖĞ volume£¨µçÑ¹£©¹Ì¶¨Îª 0.0£¨ESP32 ÎŞµçÑ¹²É¼¯£©£¬
- * x/y ¾«¶È %.2f£¬yaw ¾«¶È %.1f£¬vx/vy/vz ¾«¶È %.3f¡£
+ * å…¶ä¸­ volumeï¼ˆç”µå‹ï¼‰å›ºå®šä¸º 0.0ï¼ˆESP32 æ— ç”µå‹é‡‡é›†ï¼‰ï¼Œ
+ * x/y ç²¾åº¦ %.2fï¼Œyaw ç²¾åº¦ %.1fï¼Œvx/vy/vz ç²¾åº¦ %.3fã€‚
  *
- * ½öÔÚ STM32 ÒÑÍ¨¹ı UART ÉÏ±¨ÓĞĞ§×´Ì¬ºó²Å·¢ËÍ£¬
- * ±ÜÃâÏò·şÎñÆ÷·¢ËÍÈ«ÁãµÄÎŞĞ§Êı¾İ¡£
+ * ä»…åœ¨ STM32 å·²é€šè¿‡ UART ä¸ŠæŠ¥æœ‰æ•ˆçŠ¶æ€åæ‰å‘é€ï¼Œ
+ * é¿å…å‘æœåŠ¡å™¨å‘é€å…¨é›¶çš„æ— æ•ˆæ•°æ®ã€‚
  *
- * @param pvParameters  ±¾³µ ID ×Ö·û´®£¨const char*£©£¬ÓÉ xTaskCreate ´«Èë
+ * @param pvParameters  æœ¬è½¦ ID å­—ç¬¦ä¸²ï¼ˆconst char*ï¼‰ï¼Œç”± xTaskCreate ä¼ å…¥
  */
 static void state_report_task(void *pvParameters)
 {
@@ -214,9 +214,9 @@ static void state_report_task(void *pvParameters)
         bool send_ok = false;
         const vel_own_state_t *st = vel_solver_get_own_state();
         if (st->valid) {
-            /* ¸ñÊ½Óë STM32 ¶Ë ESP8266_SendStatus_UDP_Reliable ±£³ÖÒ»ÖÂ£º
+            /* æ ¼å¼ä¸ STM32 ç«¯ ESP8266_SendStatus_UDP_Reliable ä¿æŒä¸€è‡´ï¼š
              * CAR_ID:x,y,yaw,voltage,vx,vy,vz
-             * voltage ¹Ì¶¨ 0.0£¨ESP32 ÎŞ¸Ã²É¼¯£© */
+             * voltage å›ºå®š 0.0ï¼ˆESP32 æ— è¯¥é‡‡é›†ï¼‰ */
             int len = snprintf(msg, sizeof(msg),
                                "%s:%.2f,%.2f,%.1f,0.0,%.3f,%.3f,%.3f",
                                own_car_id,
@@ -378,10 +378,10 @@ static void boot_key_task(void *pvParameters)
     }
 }
 
-/* ========== Éè±¸ MAC ´òÓ¡ ========== */
+/* ========== è®¾å¤‡ MAC æ‰“å° ========== */
 
 /**
- * @brief ´òÓ¡±¾»ú Wi-Fi STA MAC µØÖ·²¢·µ»ØÓ³ÉäºóµÄ³µÁ¾ ID
+ * @brief æ‰“å°æœ¬æœº Wi-Fi STA MAC åœ°å€å¹¶è¿”å›æ˜ å°„åçš„è½¦è¾† ID
  */
 static const char *print_own_mac(void)
 {
@@ -398,18 +398,18 @@ static const char *print_own_mac(void)
     return lookup_car_id_by_mac(mac);
 }
 
-/* ========== Ó¦ÓÃÈë¿Ú ========== */
+/* ========== åº”ç”¨å…¥å£ ========== */
 
 /**
- * @brief Ó¦ÓÃ³ÌĞòÈë¿Úº¯Êı£¨ESP-IDF ¿ò¼Üµ÷ÓÃ£©
+ * @brief åº”ç”¨ç¨‹åºå…¥å£å‡½æ•°ï¼ˆESP-IDF æ¡†æ¶è°ƒç”¨ï¼‰
  *
- * °´ÕÕÒÔÏÂË³ĞòÍê³ÉÏµÍ³³õÊ¼»¯£º
- *  1. NVS ³õÊ¼»¯
- *  2. LED Ä£¿é³õÊ¼»¯£¨¿ìËÙÉÁË¸£¬±íÊ¾Æô¶¯ÖĞ£©
- *  3. Wi-Fi Á¬½Ó£¨×èÈûÖÁ³É¹¦»òÊ§°Ü£©
- *  4. UDP Í¨ĞÅ³õÊ¼»¯£¨´´½¨ socket£¬Æô¶¯½ÓÊÕÈÎÎñ£©
- *  5. ×¢²á UDP ½ÓÊÕ»Øµ÷
- *  6. Æô¶¯×´Ì¬ÉÏ±¨ÈÎÎñ£¨10 Hz Ïò·şÎñÆ÷·¢ËÍ±¾³µÎ»×Ë£©
+ * æŒ‰ç…§ä»¥ä¸‹é¡ºåºå®Œæˆç³»ç»Ÿåˆå§‹åŒ–ï¼š
+ *  1. NVS åˆå§‹åŒ–
+ *  2. LED æ¨¡å—åˆå§‹åŒ–ï¼ˆå¿«é€Ÿé—ªçƒï¼Œè¡¨ç¤ºå¯åŠ¨ä¸­ï¼‰
+ *  3. Wi-Fi è¿æ¥ï¼ˆé˜»å¡è‡³æˆåŠŸæˆ–å¤±è´¥ï¼‰
+ *  4. UDP é€šä¿¡åˆå§‹åŒ–ï¼ˆåˆ›å»º socketï¼Œå¯åŠ¨æ¥æ”¶ä»»åŠ¡ï¼‰
+ *  5. æ³¨å†Œ UDP æ¥æ”¶å›è°ƒ
+ *  6. å¯åŠ¨çŠ¶æ€ä¸ŠæŠ¥ä»»åŠ¡ï¼ˆ10 Hz å‘æœåŠ¡å™¨å‘é€æœ¬è½¦ä½å§¿ï¼‰
  */
 void app_main(void)
 {
@@ -436,7 +436,7 @@ void app_main(void)
     ESP_LOGI(TAG, "Step 1/5: NVS init OK");
 
     /* --- Global network init (call only once) --- */
-    /* ³õÊ¼»¯ TCP/IP Õ»ÓëÄ¬ÈÏÊÂ¼şÑ­»·£ºWi-Fi¡¢socket µÈÍøÂçÄÜÁ¦ÒÀÀµËüÃÇ */
+    /* åˆå§‹åŒ– TCP/IP æ ˆä¸é»˜è®¤äº‹ä»¶å¾ªç¯ï¼šWi-Fiã€socket ç­‰ç½‘ç»œèƒ½åŠ›ä¾èµ–å®ƒä»¬ */
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
@@ -447,7 +447,7 @@ void app_main(void)
 
     /* --- Protocol parser & vel solver init --- */
     proto_parser_init(own_car_id);
-    vel_solver_init(); /* Çå¿Õ½âËãÆ÷×´Ì¬£¬±ØĞëÔÚ proto_parser_init() Ö®ºóµ÷ÓÃ */
+    vel_solver_init(); /* æ¸…ç©ºè§£ç®—å™¨çŠ¶æ€ï¼Œå¿…é¡»åœ¨ proto_parser_init() ä¹‹åè°ƒç”¨ */
     recon_mgr_init(own_car_id);
 
 #if LCD_DIAG_SELF_TEST
@@ -465,7 +465,7 @@ void app_main(void)
     xTaskCreate(boot_key_task, "boot_key_task", 4096, NULL, 3, NULL);
 
     /* --- UART bridge init --- */
-    /* Æô¶¯´®¿ÚÇÅ½ÓÈÎÎñ£º¸ºÔğÓë STM32 ½»»»×´Ì¬/¿ØÖÆÁ¿£¨Ïê¼û modules/uart.c£© */
+    /* å¯åŠ¨ä¸²å£æ¡¥æ¥ä»»åŠ¡ï¼šè´Ÿè´£ä¸ STM32 äº¤æ¢çŠ¶æ€/æ§åˆ¶é‡ï¼ˆè¯¦è§ modules/uart.cï¼‰ */
     uart_bridge_init(115200);
     uart_bridge_start();
 
@@ -495,8 +495,8 @@ void app_main(void)
     ESP_LOGI(TAG, "Step 5/5: UDP RX callback registered");
 
     /* --- Start state report task --- */
-    /* ½« own_car_id ×Ö·û´®×÷ÎªÈÎÎñ²ÎÊı´«Èë£»Ö¸ÕëÖ¸Ïò k_mac_car_map ÖĞµÄ×Ö·û´®×ÖÃæÁ¿£¬
-     * ÉúÃüÖÜÆÚ¸²¸ÇÕû¸ö³ÌĞòÔËĞĞ£¬ÎŞĞè¶îÍâÄÚ´æ¹ÜÀí */
+    /* å°† own_car_id å­—ç¬¦ä¸²ä½œä¸ºä»»åŠ¡å‚æ•°ä¼ å…¥ï¼›æŒ‡é’ˆæŒ‡å‘ k_mac_car_map ä¸­çš„å­—ç¬¦ä¸²å­—é¢é‡ï¼Œ
+     * ç”Ÿå‘½å‘¨æœŸè¦†ç›–æ•´ä¸ªç¨‹åºè¿è¡Œï¼Œæ— éœ€é¢å¤–å†…å­˜ç®¡ç† */
     xTaskCreate(state_report_task, "state_report", 4096, (void *)own_car_id, 4, NULL);
     ESP_LOGI(TAG, "State report task started, interval=%d ms, car_id=%s",
              STATE_REPORT_INTERVAL_MS, own_car_id);
@@ -505,7 +505,7 @@ void app_main(void)
              SERVER_IP, SERVER_PORT, LOCAL_PORT);
 
     /*
-     * app_main ·µ»Øºó ESP-IDF »á×Ô¶¯É¾³ı¸ÃÈÎÎñ£¬
-     * ÏµÍ³½«ÓÉ FreeRTOS µ÷¶ÈÆäËûÈÎÎñ£¨udp_rx_task¡¢heartbeat_task¡¢led_blink_task£©¼ÌĞøÔËĞĞ¡£
+     * app_main è¿”å›å ESP-IDF ä¼šè‡ªåŠ¨åˆ é™¤è¯¥ä»»åŠ¡ï¼Œ
+     * ç³»ç»Ÿå°†ç”± FreeRTOS è°ƒåº¦å…¶ä»–ä»»åŠ¡ï¼ˆudp_rx_taskã€heartbeat_taskã€led_blink_taskï¼‰ç»§ç»­è¿è¡Œã€‚
      */
 }

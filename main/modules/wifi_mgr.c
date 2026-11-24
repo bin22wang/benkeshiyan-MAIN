@@ -1,11 +1,11 @@
 /**
  * @file wifi_mgr.c
- * @brief Wi-Fi STA Á¬½Ó¹ÜÀíÄ£¿éÊµÏÖ
+ * @brief Wi-Fi STA è¿žæŽ¥ç®¡ç†æ¨¡å—å®žçŽ°
  *
- * ·â×°ÁË ESP-IDF Wi-Fi STA ³õÊ¼»¯Á÷³Ì£¬°üº¬£º
- *  - ÊÂ¼þ»Øµ÷´¦Àí£¨Á¬½Ó/¶Ï¿ª/»ñÈ¡IP£©
- *  - ×Ô¶¯ÖØÁ¬£¨×î¶à WIFI_MAX_RETRY ´Î£©
- *  - ÊÂ¼þ×éÍ¬²½µÈ´ý IP
+ * å°è£…äº† ESP-IDF Wi-Fi STA åˆå§‹åŒ–æµç¨‹ï¼ŒåŒ…å«ï¼š
+ *  - äº‹ä»¶å›žè°ƒå¤„ç†ï¼ˆè¿žæŽ¥/æ–­å¼€/èŽ·å–IPï¼‰
+ *  - è‡ªåŠ¨é‡è¿žï¼ˆæœ€å¤š WIFI_MAX_RETRY æ¬¡ï¼‰
+ *  - äº‹ä»¶ç»„åŒæ­¥ç­‰å¾… IP
  */
 
 #include "wifi_mgr.h"
@@ -20,69 +20,69 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 
-/* ========== ÅäÖÃºê ========== */
+/* ========== é…ç½®å® ========== */
 
-/** Ä¿±ê AP µÄ SSID */
+/** ç›®æ ‡ AP çš„ SSID */
 #define WIFI_SSID        "Xiaomi_1010"
-/** Ä¿±ê AP µÄÃÜÂë */
+/** ç›®æ ‡ AP çš„å¯†ç  */
 #define WIFI_PASSWORD    "12345678"
 
 
 
-/** ×î´óÖØÁ¬´ÎÊý£¬³¬¹ýºóÖÃ FAIL ±êÖ¾²¢·ÅÆú */
+/** æœ€å¤§é‡è¿žæ¬¡æ•°ï¼Œè¶…è¿‡åŽç½® FAIL æ ‡å¿—å¹¶æ”¾å¼ƒ */
 #define WIFI_MAX_RETRY   10
 
 /*
- * ËµÃ÷£º´Ë´¦Ê¹ÓÃºêÓ²±àÂë SSID/ÃÜÂë½öÓÃÓÚÊ¾Àý/µ÷ÊÔ¡£
- * ÈôÓÃÓÚÊµ¼ÊÏîÄ¿£¬½¨Òé½«Æ¾¾Ý·ÅÈë NVS£¨»òÍ¨¹ýÅäÍø/ÅäÖÃÎÄ¼þ×¢Èë£©£¬±ÜÃâÃ÷ÎÄ¹Ì»¯ÔÚ¹Ì¼þÖÐ¡£
+ * è¯´æ˜Žï¼šæ­¤å¤„ä½¿ç”¨å®ç¡¬ç¼–ç  SSID/å¯†ç ä»…ç”¨äºŽç¤ºä¾‹/è°ƒè¯•ã€‚
+ * è‹¥ç”¨äºŽå®žé™…é¡¹ç›®ï¼Œå»ºè®®å°†å‡­æ®æ”¾å…¥ NVSï¼ˆæˆ–é€šè¿‡é…ç½‘/é…ç½®æ–‡ä»¶æ³¨å…¥ï¼‰ï¼Œé¿å…æ˜Žæ–‡å›ºåŒ–åœ¨å›ºä»¶ä¸­ã€‚
  */
 
-/* ========== ÊÂ¼þ×éÎ»¶¨Òå ========== */
+/* ========== äº‹ä»¶ç»„ä½å®šä¹‰ ========== */
 
-/** Wi-Fi ÒÑÁ¬½Ó²¢»ñÈ¡ IP µÄÊÂ¼þÎ» */
+/** Wi-Fi å·²è¿žæŽ¥å¹¶èŽ·å– IP çš„äº‹ä»¶ä½ */
 #define WIFI_CONNECTED_BIT  BIT0
-/** Wi-Fi Á¬½ÓÊ§°ÜµÄÊÂ¼þÎ» */
+/** Wi-Fi è¿žæŽ¥å¤±è´¥çš„äº‹ä»¶ä½ */
 #define WIFI_FAIL_BIT       BIT1
 
-/* ========== Ä£¿éÄÚ²¿±äÁ¿ ========== */
+/* ========== æ¨¡å—å†…éƒ¨å˜é‡ ========== */
 
 static const char *TAG = "wifi_mgr";
 
-/** ÓÃÓÚÈÎÎñ¼äÍ¬²½µÄÊÂ¼þ×é¾ä±ú */
+/** ç”¨äºŽä»»åŠ¡é—´åŒæ­¥çš„äº‹ä»¶ç»„å¥æŸ„ */
 static EventGroupHandle_t s_wifi_event_group = NULL;
 
-/** µ±Ç°ÖØÁ¬´ÎÊý¼ÆÊýÆ÷ */
+/** å½“å‰é‡è¿žæ¬¡æ•°è®¡æ•°å™¨ */
 static int s_retry_num = 0;
 
-/** Wi-Fi Á¬½Ó×´Ì¬£¨»ñÈ¡µ½ IP ºóÎª true£© */
+/** Wi-Fi è¿žæŽ¥çŠ¶æ€ï¼ˆèŽ·å–åˆ° IP åŽä¸º trueï¼‰ */
 static bool s_wifi_connected = false;
 
-/* ========== ÄÚ²¿º¯Êý ========== */
+/* ========== å†…éƒ¨å‡½æ•° ========== */
 
 /**
- * @brief Wi-Fi ºÍ IP ÊÂ¼þ»Øµ÷º¯Êý
+ * @brief Wi-Fi å’Œ IP äº‹ä»¶å›žè°ƒå‡½æ•°
  *
- * ´¦ÀíÈýÖÖÊÂ¼þ£º
- *  - WIFI_EVENT_STA_START       : Wi-Fi Æô¶¯Íê³É£¬·¢ÆðÁ¬½Ó
- *  - WIFI_EVENT_STA_DISCONNECTED: ¶ÏÏß£¬¸ù¾ÝÖØÁ¬´ÎÊý¾ö¶¨ÊÇ·ñÖØÁ¬
- *  - IP_EVENT_STA_GOT_IP        : ³É¹¦»ñÈ¡ IP£¬ÖÃÁ¬½Ó³É¹¦Î»
+ * å¤„ç†ä¸‰ç§äº‹ä»¶ï¼š
+ *  - WIFI_EVENT_STA_START       : Wi-Fi å¯åŠ¨å®Œæˆï¼Œå‘èµ·è¿žæŽ¥
+ *  - WIFI_EVENT_STA_DISCONNECTED: æ–­çº¿ï¼Œæ ¹æ®é‡è¿žæ¬¡æ•°å†³å®šæ˜¯å¦é‡è¿ž
+ *  - IP_EVENT_STA_GOT_IP        : æˆåŠŸèŽ·å– IPï¼Œç½®è¿žæŽ¥æˆåŠŸä½
  */
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data)
 {
     /*
-     * »Øµ÷´¥·¢ÉÏÏÂÎÄ£ºÓÉ ESP-IDF Ä¬ÈÏÊÂ¼þÑ­»·ÈÎÎñµ÷ÓÃ£¨·ÇÖÐ¶Ï£©¡£
-     * ×¢Òâ±£³Ö´¦ÀíÂß¼­ÇáÁ¿£¬±ÜÃâÔÚ»Øµ÷ÖÐ×ö³¤ºÄÊ±×èÈû²Ù×÷¡£
+     * å›žè°ƒè§¦å‘ä¸Šä¸‹æ–‡ï¼šç”± ESP-IDF é»˜è®¤äº‹ä»¶å¾ªçŽ¯ä»»åŠ¡è°ƒç”¨ï¼ˆéžä¸­æ–­ï¼‰ã€‚
+     * æ³¨æ„ä¿æŒå¤„ç†é€»è¾‘è½»é‡ï¼Œé¿å…åœ¨å›žè°ƒä¸­åšé•¿è€—æ—¶é˜»å¡žæ“ä½œã€‚
      */
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        /* Wi-Fi Çý¶¯Æô¶¯Íê³É£º·¢ÆðµÚÒ»´ÎÁ¬½Ó£¨ºóÐøÊÇ·ñ³É¹¦ÓÉÊÂ¼þ¼ÌÐøÇý¶¯£© */
+        /* Wi-Fi é©±åŠ¨å¯åŠ¨å®Œæˆï¼šå‘èµ·ç¬¬ä¸€æ¬¡è¿žæŽ¥ï¼ˆåŽç»­æ˜¯å¦æˆåŠŸç”±äº‹ä»¶ç»§ç»­é©±åŠ¨ï¼‰ */
         s_wifi_connected = false;
         esp_wifi_connect();
 
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         /*
-         * ¶ÏÏßÊÂ¼þ£º¿ÉÄÜÓÉÐÅºÅÈõ¡¢AP ÖØÆô¡¢ÃÜÂë´íÎóµÈÒýÆð¡£
-         * ÕâÀï°´ÖØÊÔ´ÎÊý×Ô¶¯ÖØÁ¬£¬³¬¹ýÉÏÏÞÔòÖÃ FAIL Î»£¬»½ÐÑµÈ´ý·½¡£
+         * æ–­çº¿äº‹ä»¶ï¼šå¯èƒ½ç”±ä¿¡å·å¼±ã€AP é‡å¯ã€å¯†ç é”™è¯¯ç­‰å¼•èµ·ã€‚
+         * è¿™é‡ŒæŒ‰é‡è¯•æ¬¡æ•°è‡ªåŠ¨é‡è¿žï¼Œè¶…è¿‡ä¸Šé™åˆ™ç½® FAIL ä½ï¼Œå”¤é†’ç­‰å¾…æ–¹ã€‚
          */
         s_wifi_connected = false;
         if (s_retry_num < WIFI_MAX_RETRY) {
@@ -91,30 +91,30 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
             ESP_LOGW(TAG, "Wi-Fi disconnected, retrying... (%d/%d)",
                      s_retry_num, WIFI_MAX_RETRY);
         } else {
-            /* Á¬½ÓÊ§°Ü£ºÍ¨ÖªµÈ´ý wifi_mgr_init() µÄÈÎÎñ½áÊøµÈ´ý */
+            /* è¿žæŽ¥å¤±è´¥ï¼šé€šçŸ¥ç­‰å¾… wifi_mgr_init() çš„ä»»åŠ¡ç»“æŸç­‰å¾… */
             xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
             ESP_LOGE(TAG, "Wi-Fi connect failed after %d retries", WIFI_MAX_RETRY);
         }
 
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         /*
-         * ³É¹¦»ñÈ¡ DHCP ·ÖÅäµÄ IPv4 µØÖ·£º´ËÊ±ÍøÂçÒÑ¿ÉÓÃ£¬¿É½øÐÐ socket/UDP Í¨ÐÅ¡£
-         * event_data Ö¸Ïò ip_event_got_ip_t¡£
+         * æˆåŠŸèŽ·å– DHCP åˆ†é…çš„ IPv4 åœ°å€ï¼šæ­¤æ—¶ç½‘ç»œå·²å¯ç”¨ï¼Œå¯è¿›è¡Œ socket/UDP é€šä¿¡ã€‚
+         * event_data æŒ‡å‘ ip_event_got_ip_tã€‚
          */
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_num = 0;
         s_wifi_connected = true;
-        /* ÖÃÎ»Á¬½Ó³É¹¦±êÖ¾£¬»½ÐÑµÈ´ý·½ */
+        /* ç½®ä½è¿žæŽ¥æˆåŠŸæ ‡å¿—ï¼Œå”¤é†’ç­‰å¾…æ–¹ */
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
     }
 }
 
-/* ========== ¹«¹²½Ó¿ÚÊµÏÖ ========== */
+/* ========== å…¬å…±æŽ¥å£å®žçŽ° ========== */
 
 bool wifi_mgr_init(void)
 {
-    /* ÊÂ¼þ×éÓÃÓÚÍ¬²½£ºwifi_event_handler() ÖÃÎ»£¬wifi_mgr_init() µÈ´ý */
+    /* äº‹ä»¶ç»„ç”¨äºŽåŒæ­¥ï¼šwifi_event_handler() ç½®ä½ï¼Œwifi_mgr_init() ç­‰å¾… */
     s_wifi_event_group = xEventGroupCreate();
     if (s_wifi_event_group == NULL) {
         ESP_LOGE(TAG, "Event group create failed, no memory");
@@ -122,12 +122,12 @@ bool wifi_mgr_init(void)
     }
 
     /*
-     * Ç°ÖÃÌõ¼þ£ºesp_netif_init() Óë esp_event_loop_create_default() ÓÉÉÏ²ãµ÷ÓÃ£¨¼û app_main.c£©¡£
-     * ÕâÀï½ö´´½¨Ä¬ÈÏ STA netif£¬²¢¹Ò½Ó Wi-Fi Çý¶¯µ½ TCP/IP Õ»¡£
+     * å‰ç½®æ¡ä»¶ï¼šesp_netif_init() ä¸Ž esp_event_loop_create_default() ç”±ä¸Šå±‚è°ƒç”¨ï¼ˆè§ app_main.cï¼‰ã€‚
+     * è¿™é‡Œä»…åˆ›å»ºé»˜è®¤ STA netifï¼Œå¹¶æŒ‚æŽ¥ Wi-Fi é©±åŠ¨åˆ° TCP/IP æ ˆã€‚
      */
     esp_netif_create_default_wifi_sta();
 
-    /* Ê¹ÓÃÄ¬ÈÏÅäÖÃ³õÊ¼»¯ Wi-Fi Çý¶¯ */
+    /* ä½¿ç”¨é»˜è®¤é…ç½®åˆå§‹åŒ– Wi-Fi é©±åŠ¨ */
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
@@ -142,8 +142,8 @@ bool wifi_mgr_init(void)
         &wifi_event_handler, NULL, &instance_got_ip));
 
     /*
-     * STA ÅäÖÃ£ºÉèÖÃÈÏÖ¤ÃÅÏÞ/PMF£¬²¢Ìî³ä SSID/ÃÜÂë¡£
-     * strncpy Ê¹ÓÃ sizeof-1£¬È·±£²»Ð´Ô½½ç£»Èô³¤¶È¸ÕºÃµÈÓÚÉÏÏÞ£¬Ä©Î²»á±£Áô '\0' ¿Õ¼ä¡£
+     * STA é…ç½®ï¼šè®¾ç½®è®¤è¯é—¨é™/PMFï¼Œå¹¶å¡«å…… SSID/å¯†ç ã€‚
+     * strncpy ä½¿ç”¨ sizeof-1ï¼Œç¡®ä¿ä¸å†™è¶Šç•Œï¼›è‹¥é•¿åº¦åˆšå¥½ç­‰äºŽä¸Šé™ï¼Œæœ«å°¾ä¼šä¿ç•™ '\0' ç©ºé—´ã€‚
      */
     wifi_config_t wifi_config = {
         .sta = {
@@ -159,7 +159,7 @@ bool wifi_mgr_init(void)
     strncpy((char *)wifi_config.sta.password,
             WIFI_PASSWORD, sizeof(wifi_config.sta.password) - 1);
 
-        /* ÉèÖÃÎª STA Ä£Ê½²¢Ð´ÈëÅäÖÃ£¬È»ºóÆô¶¯ Wi-Fi Çý¶¯ */
+        /* è®¾ç½®ä¸º STA æ¨¡å¼å¹¶å†™å…¥é…ç½®ï¼Œç„¶åŽå¯åŠ¨ Wi-Fi é©±åŠ¨ */
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -167,9 +167,9 @@ bool wifi_mgr_init(void)
     ESP_LOGI(TAG, "Wi-Fi init done, waiting for SSID: %s ...", WIFI_SSID);
 
     /*
-     * ×èÈûµÈ´ý£º
-     *  - WIFI_CONNECTED_BIT£º³É¹¦»ñÈ¡ IP
-     *  - WIFI_FAIL_BIT     £º³¬¹ý×î´óÖØÊÔ´ÎÊýÈÔÊ§°Ü
+     * é˜»å¡žç­‰å¾…ï¼š
+     *  - WIFI_CONNECTED_BITï¼šæˆåŠŸèŽ·å– IP
+     *  - WIFI_FAIL_BIT     ï¼šè¶…è¿‡æœ€å¤§é‡è¯•æ¬¡æ•°ä»å¤±è´¥
      */
     EventBits_t bits = xEventGroupWaitBits(
         s_wifi_event_group,
