@@ -23,7 +23,7 @@
 /* ========== 配置宏 ========== */
 
 /** 目标 AP 的 SSID */
-#define WIFI_SSID        "Xiaomi_1010"
+#define WIFI_SSID        "MERCURY_6C83"
 /** 目标 AP 的密码 */
 #define WIFI_PASSWORD    "12345678"
 
